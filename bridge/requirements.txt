@@ -1,0 +1,4 @@
+requests>=2.31
+
+# Solo necesario en Windows para el modo servicio:
+# pywin32>=306

@@ -1,0 +1,1 @@
+"""Modulo raíz del paquete app del bridge."""

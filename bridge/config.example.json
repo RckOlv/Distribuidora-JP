@@ -1,0 +1,17 @@
+{
+    "server_url": "https://dominio.com",
+    "device_id": "bridge-001",
+    "token": "",
+    "polling_interval": 3,
+    "polling_max_backoff": 30,
+    "printer": {
+        "type": "ethernet",
+        "host": "192.168.1.50",
+        "port": 9100,
+        "timeout": 5
+    },
+    "timeout_http": 10,
+    "reintentos_max": 5,
+    "logs_dir": "logs",
+    "state_file": "state.json"
+}
