@@ -172,6 +172,7 @@ class BridgeImpresionController extends Controller
         return [
             'id' => $trabajo->id,
             'ticket_id' => $trabajo->ticket_id,
+            'tipo' => $trabajo->tipo->value,
             'numero_ticket' => $trabajo->ticket?->numero,
             'estado' => $trabajo->estado->value,
             'cantidad_intentos' => $trabajo->cantidad_intentos,

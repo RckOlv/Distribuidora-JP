@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Enums\TipoTrabajoImpresion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Ticket extends Model
@@ -27,8 +29,21 @@ class Ticket extends Model
         return $this->belongsTo(Venta::class);
     }
 
+    /**
+     * Trabajo de impresión original (tipo VENTA).
+     */
     public function trabajoImpresion(): HasOne
     {
-        return $this->hasOne(TrabajoImpresion::class);
+        return $this->hasOne(TrabajoImpresion::class)
+            ->where('tipo', TipoTrabajoImpresion::VENTA->value);
+    }
+
+    /**
+     * Todos los trabajos de impresión del ticket (incluye históricos).
+     */
+    public function trabajos(): HasMany
+    {
+        return $this->hasMany(TrabajoImpresion::class)
+            ->orderBy('id');
     }
 }

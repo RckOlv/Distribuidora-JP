@@ -59,13 +59,30 @@ const toggleEstado = (producto: Producto) => {
                         </p>
                     </div>
 
-                    <Link
-                        v-if="can('productos.crear')"
-                        :href="route('productos.create')"
-                        class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                    >
-                        Nuevo producto
-                    </Link>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <a
+                            :href="
+                                route('productos.exportar-pdf', {
+                                    q: form.q || undefined,
+                                    categoria_id: form.categoria_id || undefined,
+                                    estado:
+                                        form.estado === 'todos'
+                                            ? undefined
+                                            : form.estado,
+                                })
+                            "
+                            class="inline-flex items-center rounded-md bg-white px-4 py-2 text-sm font-medium text-blue-700 shadow-sm ring-1 ring-inset ring-blue-200 hover:bg-blue-50"
+                        >
+                            Exportar PDF
+                        </a>
+                        <Link
+                            v-if="can('productos.crear')"
+                            :href="route('productos.create')"
+                            class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                        >
+                            Nuevo producto
+                        </Link>
+                    </div>
                 </div>
 
                 <form
@@ -147,7 +164,7 @@ const toggleEstado = (producto: Producto) => {
                 </form>
 
                 <div
-                    class="mt-6 overflow-hidden bg-white shadow sm:rounded-lg"
+                    class="mt-6 -mx-4 overflow-x-auto bg-white px-4 shadow sm:mx-0 sm:rounded-lg sm:px-0"
                 >
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">

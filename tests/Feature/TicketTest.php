@@ -14,6 +14,7 @@ use App\Models\TrabajoImpresion;
 use App\Models\Usuario;
 use App\Models\Venta;
 use App\Services\CajaService;
+use App\Services\VentaService;
 use App\Support\Permisos as PermisosDisponibles;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -89,6 +90,35 @@ class TicketTest extends TestCase
         $this->assertNotEmpty($contenido['fecha']);
         $this->assertSame(config('comercio.nombre'), $contenido['comercio']['nombre']);
         $this->assertSame(config('comercio.leyenda'), $contenido['comercio']['leyenda']);
+    }
+
+    public function test_el_ticket_en_efectivo_guarda_recibido_y_vuelto_en_el_snapshot(): void
+    {
+        $producto = $this->crearVendible('Banana', 'KILOGRAMO', 2500);
+        $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosPos());
+        $this->abrirCaja($cajero);
+
+        $items = [['producto_id' => $producto->id, 'cantidad' => 2]];
+        $venta = app(VentaService::class)->registrar($cajero, 'EFECTIVO', $items, 10000);
+
+        $contenido = json_decode(Ticket::where('venta_id', $venta->id)->first()->contenido, true);
+
+        $this->assertSame('10000.00', $contenido['efectivo_recibido']);
+        $this->assertSame('5000.00', $contenido['vuelto']);
+        $this->assertSame('5000.00', $contenido['total']);
+    }
+
+    public function test_el_ticket_por_transferencia_o_tarjeta_no_incluye_recibido_ni_vuelto(): void
+    {
+        $producto = $this->crearVendible('Banana', 'KILOGRAMO', 2500);
+        $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosPos());
+
+        $this->vender($cajero, [['producto_id' => $producto->id, 'cantidad' => 1]], 'TRANSFERENCIA');
+
+        $contenido = json_decode(Ticket::first()->contenido, true);
+
+        $this->assertArrayNotHasKey('efectivo_recibido', $contenido);
+        $this->assertArrayNotHasKey('vuelto', $contenido);
     }
 
     // ------------------------------------------------------------------ Trabajo de impresión
@@ -173,6 +203,7 @@ class TicketTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $producto->id, 'cantidad' => 1]],
+                'efectivo_recibido' => 1200,
             ])
             ->assertServerError();
 
@@ -417,8 +448,14 @@ class TicketTest extends TestCase
             app(CajaService::class)->abrir($cajero, 0);
         }
 
+        $datos = ['medio_pago' => $medioPago, 'items' => $items];
+
+        if ($medioPago === 'EFECTIVO') {
+            $datos['efectivo_recibido'] = $this->totalDeItems($items);
+        }
+
         $this->actingAs($cajero)
-            ->post('/pos/ventas', ['medio_pago' => $medioPago, 'items' => $items])
+            ->post('/pos/ventas', $datos)
             ->assertRedirect(route('pos.index'));
 
         return Venta::query()->where('usuario_id', $cajero->id)->latest('id')->first();

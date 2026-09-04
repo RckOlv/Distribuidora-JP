@@ -99,14 +99,17 @@ class PrintBridge:
         id_trabajo = int(trabajo["id"])
         numero = str(trabajo.get("numero_ticket", ""))
         contenido_texto = str(trabajo.get("contenido", ""))
+        tipo = str(trabajo.get("tipo", "VENTA")).upper() or "VENTA"
+        es_reimpresion = tipo == "REIMPRESION"
         self.runtime.pendientes = 1
-        self.logger.info("Trabajo reclamado: N°%s (id=%s).", numero, id_trabajo)
+        self.logger.info("Trabajo reclamado: N°%s (id=%s, tipo=%s).",
+                         numero, id_trabajo, tipo)
 
         # 1) Interpreto el snapshot ANTES de tocar la impresora. Un contenido
         #    inválido/corrupto es un error permanente: no reintentarlo.
         try:
             snapshot = self._construir_snapshot(contenido_texto)
-            datos = generar_ticket(snapshot)
+            datos = generar_ticket(snapshot, es_reimpresion=es_reimpresion)
         except ErrorPermanente as e:
             mensaje = f"Error permanente en N°{numero}: {e}"
             self.runtime.imprimiendo = False

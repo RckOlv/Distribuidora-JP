@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EstadoPagoVenta;
 use App\Enums\MedioPago;
+use App\Enums\TipoTrabajoImpresion;
 use App\Http\Requests\VentasHistorialRequest;
 use App\Models\Usuario;
 use App\Models\Venta;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -24,6 +27,7 @@ class VentaController extends Controller
         $medioPago = $datos['medio_pago'] ?? '';
 
         $ventas = Venta::query()
+            ->where('estado_pago', EstadoPagoVenta::PAGADA->value)
             ->with([
                 'usuario:id,name',
                 'caja',
@@ -79,12 +83,15 @@ class VentaController extends Controller
             'usuario:id,name',
             'caja',
             'ticket',
-            'ticket.trabajoImpresion',
+            'ticket.trabajos.usuario:id,name',
             'detalles.producto:id,nombre,unidad_medida',
         ]);
 
         $numero = $venta->ticket?->numero ?? $this->numeroVenta($venta);
-        $impresion = $venta->ticket?->trabajoImpresion;
+        $impresion = $venta->ticket?->trabajos->firstWhere('tipo', TipoTrabajoImpresion::VENTA->value);
+        $ticketContenido = $venta->ticket?->contenido
+            ? json_decode($venta->ticket->contenido, true)
+            : null;
 
         $detalles = $venta->detalles->map(fn ($detalle) => [
             'producto_id' => $detalle->producto_id,
@@ -94,6 +101,18 @@ class VentaController extends Controller
             'precio_unitario' => (float) $detalle->precio_unitario,
             'subtotal' => (float) $detalle->subtotal,
         ]);
+
+        $trabajos = $venta->ticket?->trabajos->map(fn ($trabajo) => [
+            'id' => $trabajo->id,
+            'tipo' => $trabajo->tipo->value,
+            'tipo_etiqueta' => $trabajo->tipo->etiqueta(),
+            'estado' => $trabajo->estado->value,
+            'estado_etiqueta' => $trabajo->estado->etiqueta(),
+            'usuario' => $trabajo->usuario?->name,
+            'motivo' => $trabajo->motivo,
+            'solicitado_en' => $trabajo->created_at?->toIso8601String(),
+            'impreso_en' => $trabajo->impreso_en?->toIso8601String(),
+        ])->values()->all() ?? [];
 
         return Inertia::render('Ventas/Show', [
             'venta' => [
@@ -111,11 +130,97 @@ class VentaController extends Controller
                         'numero' => $venta->ticket->numero,
                         'estado_impresion' => $impresion?->estado?->value,
                         'estado_impresion_etiqueta' => $impresion?->estado?->etiqueta(),
+                        'contenido' => $ticketContenido,
                     ]
                     : null,
             ],
             'detalles' => $detalles,
+            'trabajos' => $trabajos,
         ]);
+    }
+
+    /**
+     * Descarga el ticket de la venta en PDF con formato térmico de 80 mm.
+     *
+     * Es solamente una exportación/visualización del ticket histórico: usa el
+     * snapshot inmutable almacenado en {@see Ticket::$contenido}, no modifica la
+     * venta ni el ticket.
+     */
+    public function ticketPdf(Venta $venta): \Illuminate\Http\Response
+    {
+        $venta->load(['ticket', 'caja.cajaFisica']);
+
+        $ticket = $venta->ticket;
+        $contenido = $ticket?->contenido
+            ? json_decode($ticket->contenido, true)
+            : null;
+
+        if ($ticket === null || ! is_array($contenido)) {
+            abort(404, 'Esta venta no tiene ticket para descargar.');
+        }
+
+        $contenido['caja_fisica'] = $venta->caja?->cajaFisica?->nombre;
+
+        $anchoPuntos = 226.77; // 80 mm
+        $altoPuntos = $this->altoTicketPuntos($contenido);
+
+        $pdf = Pdf::loadView('pdf.ticket', [
+            'ticket' => $contenido,
+        ])->setPaper([0, 0, $anchoPuntos, $altoPuntos]);
+
+        return $pdf->download('ticket-'.$contenido['numero'].'.pdf');
+    }
+
+    /**
+     * Estima la altura en puntos que necesita el ticket según su contenido.
+     * El tamaño crece con la cantidad de líneas de detalle; se usa un ancho fijo
+     * de 80 mm y margen mínimo, sin recurrir a hojas A4.
+     *
+     * @param  array<string, mixed>  $contenido
+     */
+    private function altoTicketPuntos(array $contenido): float
+    {
+        $detalles = (array) ($contenido['detalles'] ?? []);
+        $comercio = (array) ($contenido['comercio'] ?? []);
+
+        $alto = 20.0; // margen superior
+
+        // Encabezado de comercio (nombre + dirección + teléfono).
+        $alto += 30;
+        if (! empty($comercio['direccion'])) {
+            $alto += 14;
+        }
+        if (! empty($comercio['telefono'])) {
+            $alto += 14;
+        }
+
+        // Número, fecha, caja física, usuario y medio de pago.
+        $alto += 60;
+
+        // Encabezado de la tabla y una línea por detalle.
+        $alto += 22;
+        $alto += max(1, count($detalles)) * 20;
+
+        // Total, recibido/vuelto (efectivo) y pago.
+        $alto += 38;
+        if (array_key_exists('efectivo_recibido', $contenido) && ($contenido['efectivo_recibido'] ?? null) !== null) {
+            $alto += 16;
+        }
+        if (array_key_exists('vuelto', $contenido) && ($contenido['vuelto'] ?? null) !== null) {
+            $alto += 16;
+        }
+        if (! empty($contenido['medio_pago'])) {
+            $alto += 20;
+        }
+
+        // Leyenda de cierre y margen inferior.
+        if (! empty($comercio['leyenda'])) {
+            $alto += 26;
+        }
+        $alto += 22;
+
+        // Factor de seguridad para que el contenido no corte en una segunda página.
+        return $alto * 1.15;
     }
 
     /**

@@ -2,10 +2,11 @@
 
 namespace Database\Factories;
 
+use App\Models\Permiso;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends Factory<\App\Models\Permiso>
+ * @extends Factory<Permiso>
  */
 class PermisoFactory extends Factory
 {

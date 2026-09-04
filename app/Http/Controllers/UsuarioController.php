@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\AccionAuditoria;
 use App\Http\Requests\UsuarioRequest;
 use App\Models\Rol;
 use App\Models\Usuario;
+use App\Services\AuditoriaService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
 use Inertia\Inertia;
@@ -12,6 +14,8 @@ use Inertia\Response;
 
 class UsuarioController extends Controller
 {
+    public function __construct(private AuditoriaService $auditoria) {}
+
     /**
      * Lista los usuarios del sistema con su rol y estado.
      */
@@ -42,13 +46,23 @@ class UsuarioController extends Controller
     {
         $datos = $request->validated();
 
-        Usuario::create([
+        $usuario = Usuario::create([
             'name' => $datos['name'],
             'email' => $datos['email'],
             'password' => $datos['password'],
             'rol_id' => $datos['rol_id'],
             'activo' => $datos['activo'] ?? true,
         ]);
+
+        $this->auditoria->registrar(
+            AccionAuditoria::USUARIO_CREADO,
+            $request->user(),
+            'usuario',
+            $usuario->id,
+            "Se creó el usuario «{$usuario->name}».",
+            null,
+            $this->datosUsuarioAuditables($usuario),
+        );
 
         return redirect()->route('usuarios.index')
             ->with('success', 'Usuario creado correctamente.');
@@ -77,6 +91,8 @@ class UsuarioController extends Controller
         // Protección: no dejar el sistema sin un dueño activo al cambiar el rol.
         $this->asegurarQueHayaDuenoActivo($usuario, $datos['rol_id']);
 
+        $anterior = $this->datosUsuarioAuditables($usuario);
+
         $actualizar = [
             'name' => $datos['name'],
             'email' => $datos['email'],
@@ -85,11 +101,29 @@ class UsuarioController extends Controller
         ];
 
         // Contraseña opcional: solo se toca si se envía una nueva.
+        $cambioContrasena = false;
         if (! empty($datos['password'])) {
             $actualizar['password'] = $datos['password'];
+            $cambioContrasena = true;
         }
 
         $usuario->update($actualizar);
+
+        $nuevo = $this->datosUsuarioAuditables($usuario);
+
+        if ($cambioContrasena) {
+            $nuevo['password_cambiada'] = true;
+        }
+
+        $this->auditoria->registrar(
+            AccionAuditoria::USUARIO_MODIFICADO,
+            $request->user(),
+            'usuario',
+            $usuario->id,
+            "Se modificó el usuario «{$usuario->name}».",
+            $anterior,
+            $nuevo,
+        );
 
         return redirect()->route('usuarios.index')
             ->with('success', 'Usuario actualizado correctamente.');
@@ -106,7 +140,22 @@ class UsuarioController extends Controller
                 ->with('success', 'No se puede desactivar: debe haber al menos un dueño activo.');
         }
 
+        $activoPrevio = $usuario->activo;
         $usuario->update(['activo' => ! $usuario->activo]);
+
+        $accion = $usuario->activo
+            ? AccionAuditoria::USUARIO_ACTIVADO
+            : AccionAuditoria::USUARIO_DESACTIVADO;
+
+        $this->auditoria->registrar(
+            $accion,
+            auth()->user(),
+            'usuario',
+            $usuario->id,
+            ($usuario->activo ? 'Se activó' : 'Se desactivó')." el usuario «{$usuario->name}».",
+            ['activo' => $activoPrevio],
+            ['activo' => $usuario->activo],
+        );
 
         return redirect()->route('usuarios.index')
             ->with('success', 'Estado del usuario actualizado correctamente.');
@@ -150,5 +199,22 @@ class UsuarioController extends Controller
             ->whereIn('nombre', [Rol::DUENO, Rol::CAJERO])
             ->orderBy('nombre')
             ->get(['id', 'nombre']);
+    }
+
+    /**
+     * Datos relevantes de un usuario para la auditoría.
+     *
+     * Nunca incluye la contraseña ni su hash.
+     *
+     * @return array<string, mixed>
+     */
+    private function datosUsuarioAuditables(Usuario $usuario): array
+    {
+        return [
+            'name' => $usuario->name,
+            'email' => $usuario->email,
+            'rol' => $usuario->rol?->nombre,
+            'activo' => (bool) $usuario->activo,
+        ];
     }
 }

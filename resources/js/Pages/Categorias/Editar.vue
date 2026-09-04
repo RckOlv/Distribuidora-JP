@@ -6,6 +6,7 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import type { Categoria } from '@/types';
 
 const props = defineProps<{
@@ -17,7 +18,33 @@ const form = useForm({
     descripcion: props.categoria.descripcion ?? '',
 });
 
+const errorNombreLocal = computed(() => {
+    const valor = form.nombre.trim();
+
+    if (valor.length === 0) {
+        return 'El nombre de la categoría es obligatorio.';
+    }
+
+    if (valor.length < 2) {
+        return 'El nombre de la categoría debe tener al menos 2 caracteres.';
+    }
+
+    if (valor.length > 100) {
+        return 'El nombre de la categoría no debe superar los 100 caracteres.';
+    }
+
+    if (!/[\p{L}]/u.test(valor)) {
+        return 'El nombre de la categoría no puede ser solo números.';
+    }
+
+    return '';
+});
+
 const submit = () => {
+    if (errorNombreLocal.value) {
+        return;
+    }
+
     form.put(route('categorias.update', props.categoria.id));
 };
 </script>
@@ -55,8 +82,15 @@ const submit = () => {
                             required
                             autofocus
                             maxlength="100"
+                            @input="delete form.errors.nombre"
                         />
                         <InputError class="mt-2" :message="form.errors.nombre" />
+                        <p
+                            v-if="!form.errors.nombre && errorNombreLocal"
+                            class="mt-2 text-sm text-red-600"
+                        >
+                            {{ errorNombreLocal }}
+                        </p>
                     </div>
 
                     <div class="mt-4">

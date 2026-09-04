@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\EstadoImpresion;
+use App\Enums\TipoTrabajoImpresion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -13,16 +14,20 @@ class TrabajoImpresion extends Model
     protected $fillable = [
         'ticket_id',
         'dispositivo_id',
+        'usuario_id',
+        'tipo',
         'estado',
         'cantidad_intentos',
         'procesando_at',
         'ultimo_error',
         'impreso_en',
+        'motivo',
     ];
 
     protected function casts(): array
     {
         return [
+            'tipo' => TipoTrabajoImpresion::class,
             'estado' => EstadoImpresion::class,
             'cantidad_intentos' => 'integer',
             'procesando_at' => 'datetime',
@@ -38,5 +43,10 @@ class TrabajoImpresion extends Model
     public function dispositivo(): BelongsTo
     {
         return $this->belongsTo(DispositivoImpresion::class);
+    }
+
+    public function usuario(): BelongsTo
+    {
+        return $this->belongsTo(Usuario::class);
     }
 }

@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Controllers\AuditoriaController;
 use App\Http\Controllers\CajaController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\VentaController;
 use Illuminate\Support\Facades\Route;
@@ -49,6 +51,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/productos', [ProductoController::class, 'index'])
         ->middleware('permiso:productos.ver')
         ->name('productos.index');
+    Route::get('/productos/exportar-pdf', [ProductoController::class, 'exportarPdf'])
+        ->middleware('permiso:productos.ver')
+        ->name('productos.exportar-pdf');
+    Route::get('/productos/verificar-nombre', [ProductoController::class, 'verificarNombre'])
+        ->middleware('permiso:productos.ver')
+        ->name('productos.verificar-nombre');
     Route::get('/productos/crear', [ProductoController::class, 'create'])
         ->middleware('permiso:productos.crear')
         ->name('productos.create');
@@ -77,10 +85,35 @@ Route::middleware('auth')->group(function () {
     Route::get('/ventas/{venta}', [VentaController::class, 'show'])
         ->middleware('permiso:ventas.ver')
         ->name('ventas.show');
+    Route::get('/ventas/{venta}/ticket-pdf', [VentaController::class, 'ticketPdf'])
+        ->middleware('permiso:ventas.ver')
+        ->name('ventas.ticket-pdf');
+
+    // Reportes (resumen diario de ventas y ganancias)
+    Route::get('/reportes', [ReporteController::class, 'index'])
+        ->middleware('permiso:reportes.ver')
+        ->name('reportes.index');
+
+    // Auditoría
+    Route::get('/auditoria', [AuditoriaController::class, 'index'])
+        ->middleware('permiso:auditoria.ver')
+        ->name('auditoria.index');
+    Route::get('/auditoria/{auditoria}', [AuditoriaController::class, 'show'])
+        ->middleware('permiso:auditoria.ver')
+        ->name('auditoria.show');
 
     Route::post('/pos/ventas', [PosController::class, 'store'])
         ->middleware(['permiso:pos.usar', 'permiso:ventas.realizar'])
         ->name('pos.ventas.store');
+    Route::post('/pos/ventas/pendientes', [PosController::class, 'pendiente'])
+        ->middleware(['permiso:pos.usar', 'permiso:ventas.realizar'])
+        ->name('pos.ventas.pendiente');
+    Route::post('/pos/ventas/{venta}/confirmar-pago', [PosController::class, 'confirmarPago'])
+        ->middleware(['permiso:pos.usar', 'permiso:ventas.realizar'])
+        ->name('pos.ventas.confirmar');
+    Route::post('/pos/ventas/{venta}/cancelar', [PosController::class, 'cancelarPendiente'])
+        ->middleware(['permiso:pos.usar', 'permiso:ventas.realizar'])
+        ->name('pos.ventas.cancelar');
 
     // Usuarios
     Route::get('/usuarios', [UsuarioController::class, 'index'])

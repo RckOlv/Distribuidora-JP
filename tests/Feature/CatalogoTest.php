@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Categoria;
+use App\Models\Costo;
 use App\Models\Permiso;
 use App\Models\Precio;
 use App\Models\Producto;
@@ -147,6 +148,8 @@ class CatalogoTest extends TestCase
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'BOLSA',
                 'codigo' => '7791234567',
+                'monto' => 4000,
+                'costo' => 2500,
             ])
             ->assertRedirect(route('productos.index'));
 
@@ -158,7 +161,7 @@ class CatalogoTest extends TestCase
         ]);
     }
 
-    public function test_producto_puede_crearse_sin_codigo(): void
+    public function test_producto_no_puede_crearse_sin_codigo(): void
     {
         $categoria = Categoria::create(['nombre' => 'Verduras']);
         $dueno = $this->crearUsuarioConRol(Rol::DUENO, []);
@@ -168,10 +171,12 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Papa',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
+                'monto' => 1000,
+                'costo' => 600,
             ])
-            ->assertRedirect(route('productos.index'));
+            ->assertSessionHasErrors('codigo');
 
-        $this->assertDatabaseHas('productos', ['nombre' => 'Papa', 'codigo' => null]);
+        $this->assertDatabaseMissing('productos', ['nombre' => 'Papa']);
     }
 
     public function test_codigo_de_producto_no_puede_duplicarse(): void
@@ -186,6 +191,8 @@ class CatalogoTest extends TestCase
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'BOLSA',
                 'codigo' => '7791234567',
+                'monto' => 4000,
+                'costo' => 2500,
             ])
             ->assertSessionHasErrors('codigo');
 
@@ -231,6 +238,9 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Cebolla',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'BOLSA',
+                'codigo' => '7790000123',
+                'monto' => 500,
+                'costo' => 300,
             ])
             ->assertValid();
 
@@ -329,7 +339,9 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Pera',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
+                'codigo' => '7790000200',
                 'monto' => 1250,
+                'costo' => 800,
             ])
             ->assertRedirect(route('productos.index'));
 
@@ -427,6 +439,7 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Pera',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
+                'codigo' => '7790000600',
                 'monto' => 0,
             ])
             ->assertSessionHasErrors('monto');
@@ -436,6 +449,7 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Manzana',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
+                'codigo' => '7790000601',
                 'monto' => 'abc',
             ])
             ->assertSessionHasErrors('monto');
@@ -467,6 +481,54 @@ class CatalogoTest extends TestCase
         $this->assertSame(1, Precio::where('producto_id', $producto->id)->count());
     }
 
+    public function test_costo_invalido_es_rechazado_sin_crear_registros_parciales(): void
+    {
+        $categoria = Categoria::create(['nombre' => 'Frutas']);
+        $dueno = $this->crearUsuarioConRol(Rol::DUENO, []);
+
+        $this->actingAs($dueno)
+            ->post('/productos', [
+                'nombre' => 'Pera',
+                'categoria_id' => $categoria->id,
+                'unidad_medida' => 'KILOGRAMO',
+                'codigo' => '7790000700',
+                'monto' => 1500,
+                'costo' => 0,
+            ])
+            ->assertSessionHasErrors('costo');
+
+        $this->assertSame(0, Producto::count(), 'Producto no debe crearse con costo inválido.');
+        $this->assertSame(0, Precio::count(), 'No debe quedar precio parcial.');
+        $this->assertSame(0, Costo::count(), 'No debe quedar costo parcial.');
+    }
+
+    public function test_producto_con_costo_se_crea_con_costo_vigente(): void
+    {
+        $categoria = Categoria::create(['nombre' => 'Frutas']);
+        $dueno = $this->crearUsuarioConRol(Rol::DUENO, []);
+
+        $this->actingAs($dueno)
+            ->post('/productos', [
+                'nombre' => 'Manzana',
+                'categoria_id' => $categoria->id,
+                'unidad_medida' => 'KILOGRAMO',
+                'codigo' => '7790000300',
+                'monto' => 2000,
+                'costo' => 1300,
+            ])
+            ->assertRedirect(route('productos.index'));
+
+        $producto = Producto::where('nombre', 'Manzana')->first();
+
+        $this->assertDatabaseHas('costos', [
+            'producto_id' => $producto->id,
+            'precio' => 1300,
+            'vigente' => true,
+        ]);
+        $this->assertSame(1, Precio::where('producto_id', $producto->id)->count(), 'Precio inicial creado.');
+        $this->assertSame(1, Costo::where('producto_id', $producto->id)->count(), 'Solo un costo vigente.');
+    }
+
     // ------------------------------------------------------------------ Imágenes
 
     public function test_producto_puede_crearse_sin_imagen(): void
@@ -479,6 +541,9 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Pera',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
+                'codigo' => '7790000400',
+                'monto' => 1500,
+                'costo' => 900,
             ])
             ->assertRedirect(route('productos.index'));
 
@@ -497,6 +562,9 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Bolsa Sopa',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'BOLSA',
+                'codigo' => '7790000500',
+                'monto' => 4000,
+                'costo' => 2500,
                 'imagen' => $this->imagenFake('bolsa.png'),
             ])
             ->assertRedirect(route('productos.index'));

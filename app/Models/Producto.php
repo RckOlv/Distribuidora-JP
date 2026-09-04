@@ -49,11 +49,30 @@ class Producto extends Model
         return $this->hasOne(Precio::class)->where('vigente', true);
     }
 
+    public function costos(): HasMany
+    {
+        return $this->hasMany(Costo::class);
+    }
+
+    public function costoVigente(): HasOne
+    {
+        return $this->hasOne(Costo::class)->where('vigente', true);
+    }
+
     public function getImagenUrlAttribute(): ?string
     {
-        return $this->imagen
-            ? Storage::disk('public')->url($this->imagen)
-            : null;
+        if (! $this->imagen) {
+            return null;
+        }
+
+        // Storage::url() genera una URL absoluta basada en APP_URL (p. ej.
+        // http://verduleria.test/storage/...). Cuando se navega desde otro host
+        // o IP, ese dominio no se resuelve (ERR_NAME_NOT_RESOLVED), así que
+        // devolvemos una ruta relativa para que el navegador la resuelva contra
+        // el propio servidor que está sirviendo la aplicación.
+        $rutaAbsoluta = Storage::disk('public')->url($this->imagen);
+
+        return '/'.ltrim((string) parse_url($rutaAbsoluta, PHP_URL_PATH), '/');
     }
 
     /**

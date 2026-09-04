@@ -2,12 +2,18 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
+import Modal from '@/Components/Modal.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
-import { opcionesUnidad, unidadDescripcion } from '@/helpers/formato';
+import {
+    etiquetaUnidad,
+    formatoMoneda,
+    opcionesUnidad,
+    unidadDescripcion,
+} from '@/helpers/formato';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { Categoria, UnidadVenta } from '@/types';
 
 const props = defineProps<{
@@ -18,11 +24,57 @@ const form = useForm({
     nombre: '',
     categoria_id: '',
     unidad_medida: '',
+    monto: '',
+    costo: '',
     codigo: '',
     descripcion: '',
-    monto: '',
     imagen: null as File | null,
 });
+
+const modalConfirmacion = ref(false);
+
+const confirmarGuardar = () => {
+    form.post(route('productos.store'), {
+        onSuccess: () => form.reset(),
+        onError: () => {
+            modalConfirmacion.value = false;
+        },
+    });
+};
+
+const nombreDuplicado = ref(false);
+let temporizadorNombre: ReturnType<typeof setTimeout> | null = null;
+
+const verificarNombre = async () => {
+    const nombre = form.nombre.trim();
+
+    if (nombre.length === 0) {
+        nombreDuplicado.value = false;
+        return;
+    }
+
+    try {
+        const resp = await fetch(
+            `${route('productos.verificar-nombre')}?nombre=${encodeURIComponent(nombre)}`,
+            { headers: { Accept: 'application/json' } },
+        );
+        const datos = (await resp.json()) as { existe: boolean };
+        nombreDuplicado.value = datos.existe;
+    } catch {
+        nombreDuplicado.value = false;
+    }
+};
+
+watch(
+    () => form.nombre,
+    () => {
+        if (temporizadorNombre) {
+            clearTimeout(temporizadorNombre);
+        }
+
+        temporizadorNombre = setTimeout(verificarNombre, 400);
+    },
+);
 
 const previewImagen = ref<string | null>(null);
 
@@ -40,12 +92,23 @@ const onImagenSeleccionada = (event: Event) => {
 };
 
 const submit = () => {
-    form.post(route('productos.store'), {
-        onSuccess: () => form.reset(),
-    });
+    modalConfirmacion.value = true;
 };
 
 const opciones = opcionesUnidad();
+
+const categoriaSeleccionada = computed(
+    () =>
+        props.categorias.find(
+            (c) => String(c.id) === form.categoria_id,
+        )?.nombre ?? null,
+);
+
+const unidadEtiqueta = computed(() =>
+    form.unidad_medida
+        ? etiquetaUnidad(form.unidad_medida as UnidadVenta)
+        : null,
+);
 </script>
 
 <template>
@@ -84,6 +147,12 @@ const opciones = opcionesUnidad();
                             maxlength="150"
                         />
                         <InputError class="mt-2" :message="form.errors.nombre" />
+                        <p
+                            v-if="nombreDuplicado"
+                            class="mt-2 text-sm text-red-600"
+                        >
+                            Ya existe un producto con ese nombre.
+                        </p>
                     </div>
 
                     <div class="mt-4">
@@ -146,10 +215,45 @@ const opciones = opcionesUnidad();
                     </div>
 
                     <div class="mt-4">
-                        <InputLabel
-                            for="codigo"
-                            value="Código / barcode (opcional)"
+                        <InputLabel for="costo" value="Precio de costo" />
+                        <TextInput
+                            id="costo"
+                            v-model="form.costo"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            class="mt-1 block w-full"
+                            placeholder="Ej.: 1200"
+                            required
                         />
+                        <p class="mt-1 text-xs text-gray-500">
+                            Costo de compra del producto. Queda registrado como
+                            costo vigente y puede actualizarse después.
+                        </p>
+                        <InputError class="mt-2" :message="form.errors.costo" />
+                    </div>
+
+                    <div class="mt-4">
+                        <InputLabel for="monto" value="Precio de venta" />
+                        <TextInput
+                            id="monto"
+                            v-model="form.monto"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            class="mt-1 block w-full"
+                            placeholder="Ej.: 1800"
+                            required
+                        />
+                        <p class="mt-1 text-xs text-gray-500">
+                            El precio inicial queda registrado como precio de
+                            venta vigente del producto.
+                        </p>
+                        <InputError class="mt-2" :message="form.errors.monto" />
+                    </div>
+
+                    <div class="mt-4">
+                        <InputLabel for="codigo" value="Código / barcode" />
                         <TextInput
                             id="codigo"
                             v-model="form.codigo"
@@ -157,10 +261,11 @@ const opciones = opcionesUnidad();
                             class="mt-1 block w-full"
                             placeholder="Ej.: 7791234567890"
                             maxlength="64"
+                            required
                         />
                         <p class="mt-1 text-xs text-gray-500">
-                            Los productos a granel (papa, banana, cebolla…)
-                            pueden dejarse sin código.
+                            Código de barras del producto. Agiliza el agregado
+                            desde el POS con el lector.
                         </p>
                         <InputError class="mt-2" :message="form.errors.codigo" />
                     </div>
@@ -194,24 +299,6 @@ const opciones = opcionesUnidad();
                         <InputError class="mt-2" :message="form.errors.imagen" />
                     </div>
 
-                    <div class="mt-4">
-                        <InputLabel for="monto" value="Precio actual (opcional)" />
-                        <TextInput
-                            id="monto"
-                            v-model="form.monto"
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            class="mt-1 block w-full"
-                            placeholder="Ej.: 1800"
-                        />
-                        <p class="mt-1 text-xs text-gray-500">
-                            El precio inicial queda registrado como precio
-                            vigente del producto.
-                        </p>
-                        <InputError class="mt-2" :message="form.errors.monto" />
-                    </div>
-
                     <div class="mt-6 flex items-center gap-4">
                         <PrimaryButton
                             :class="{ 'opacity-25': form.processing }"
@@ -229,5 +316,129 @@ const opciones = opcionesUnidad();
                 </form>
             </div>
         </div>
+
+        <Modal
+            :show="modalConfirmacion"
+            max-width="md"
+            @close="modalConfirmacion = false"
+        >
+            <div class="p-6">
+                <h3 class="text-lg font-semibold text-gray-900">
+                    Confirmar alta de producto
+                </h3>
+                <p class="mt-1 text-sm text-gray-600">
+                    Vas a crear el siguiente producto:
+                </p>
+
+                <div
+                    class="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-center"
+                >
+                    <p class="text-xl font-semibold text-gray-900">
+                        {{ form.nombre.trim() || '—' }}
+                    </p>
+                    <p class="mt-1 text-sm text-gray-500">
+                        Categoría:
+                        <span class="font-medium text-gray-700">
+                            {{ categoriaSeleccionada ?? '—' }}
+                        </span>
+                    </p>
+                </div>
+
+                <dl
+                    class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2"
+                >
+                    <div
+                        class="rounded-md bg-white px-3 py-2 ring-1 ring-gray-200"
+                    >
+                        <dt
+                            class="text-xs uppercase tracking-wider text-gray-500"
+                        >
+                            Precio de venta
+                        </dt>
+                        <dd class="mt-0.5 text-base font-semibold text-gray-900">
+                            {{ formatoMoneda(form.monto) }}
+                        </dd>
+                    </div>
+
+                    <div
+                        class="rounded-md bg-white px-3 py-2 ring-1 ring-gray-200"
+                    >
+                        <dt
+                            class="text-xs uppercase tracking-wider text-gray-500"
+                        >
+                            Precio de costo
+                        </dt>
+                        <dd class="mt-0.5 text-base font-semibold text-gray-900">
+                            {{ formatoMoneda(form.costo) }}
+                        </dd>
+                    </div>
+
+                    <div
+                        class="rounded-md bg-white px-3 py-2 ring-1 ring-gray-200"
+                    >
+                        <dt
+                            class="text-xs uppercase tracking-wider text-gray-500"
+                        >
+                            Código
+                        </dt>
+                        <dd class="mt-0.5 text-base font-medium text-gray-900">
+                            {{ form.codigo.trim() || '—' }}
+                        </dd>
+                    </div>
+
+                    <div
+                        class="rounded-md bg-white px-3 py-2 ring-1 ring-gray-200"
+                    >
+                        <dt
+                            class="text-xs uppercase tracking-wider text-gray-500"
+                        >
+                            Tipo de venta
+                        </dt>
+                        <dd class="mt-0.5 text-base font-medium text-gray-900">
+                            {{ unidadEtiqueta ?? '—' }}
+                        </dd>
+                    </div>
+
+                    <div
+                        v-if="form.descripcion.trim()"
+                        class="rounded-md bg-white px-3 py-2 ring-1 ring-gray-200 sm:col-span-2"
+                    >
+                        <dt
+                            class="text-xs uppercase tracking-wider text-gray-500"
+                        >
+                            Descripción
+                        </dt>
+                        <dd class="mt-0.5 text-sm text-gray-700">
+                            {{ form.descripcion }}
+                        </dd>
+                    </div>
+                </dl>
+
+                <p class="mt-4 text-sm font-medium text-gray-700">
+                    ¿Los datos son correctos?
+                </p>
+
+                <div class="mt-4 flex justify-end gap-2">
+                    <SecondaryButton
+                        type="button"
+                        :disabled="form.processing"
+                        @click="modalConfirmacion = false"
+                    >
+                        Cancelar
+                    </SecondaryButton>
+                    <PrimaryButton
+                        :class="{ 'opacity-25': form.processing }"
+                        :disabled="form.processing"
+                        @click="confirmarGuardar"
+                    >
+                        {{
+                            form.processing
+                                ? 'Guardando…'
+                                : 'Confirmar y guardar'
+                        }}
+                    </PrimaryButton>
+                </div>
+            </div>
+        </Modal>
     </AuthenticatedLayout>
 </template>

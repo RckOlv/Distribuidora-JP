@@ -208,6 +208,18 @@ class BridgeImpresionTest extends TestCase
         $this->assertSame('3750.00', $contenido['total']);
     }
 
+    public function test_el_claim_devuelve_el_tipo_de_un_trabajo_de_venta(): void
+    {
+        $this->crearDispositivo('bridge-001', 'token-secreto');
+        $producto = $this->crearVendible('Banana', 'KILOGRAMO', 2500);
+        $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosPos());
+        $this->vender($cajero, [['producto_id' => $producto->id, 'cantidad' => 1.5]]);
+
+        $this->withToken('token-secreto')
+            ->getJson('/api/bridge/impresiones/pendientes')
+            ->assertJsonPath('trabajo.tipo', 'VENTA');
+    }
+
     // ------------------------------------------------------------------ Confirmar impresión
 
     public function test_informar_impreso_marca_impreso_y_libera_el_claim(): void
@@ -396,8 +408,14 @@ class BridgeImpresionTest extends TestCase
             app(CajaService::class)->abrir($cajero, 0);
         }
 
+        $datos = ['medio_pago' => $medioPago, 'items' => $items];
+
+        if ($medioPago === 'EFECTIVO') {
+            $datos['efectivo_recibido'] = $this->totalDeItems($items);
+        }
+
         $this->actingAs($cajero)
-            ->post('/pos/ventas', ['medio_pago' => $medioPago, 'items' => $items])
+            ->post('/pos/ventas', $datos)
             ->assertRedirect(route('pos.index'));
 
         return Venta::query()->where('usuario_id', $cajero->id)->latest('id')->first();

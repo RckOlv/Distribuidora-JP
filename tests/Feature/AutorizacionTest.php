@@ -84,8 +84,9 @@ class AutorizacionTest extends TestCase
 
         $this->assertTrue($cajero->tienePermiso(Permisos::POS_USAR));
         $this->assertTrue($cajero->tienePermiso(Permisos::VENTAS_REALIZAR));
-        $this->assertTrue($cajero->tienePermiso(Permisos::VENTAS_VER));
         $this->assertTrue($cajero->tienePermiso(Permisos::TICKETS_IMPRIMIR));
+        // El cajero no administra catálogo ni consulta ventas (tampoco reimpresión).
+        $this->assertFalse($cajero->tienePermiso(Permisos::VENTAS_VER));
         $this->assertFalse($cajero->tienePermiso(Permisos::PRODUCTOS_CREAR));
         $this->assertFalse($cajero->tienePermiso(Permisos::USUARIOS_GESTIONAR));
     }

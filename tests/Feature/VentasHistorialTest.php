@@ -13,6 +13,7 @@ use App\Models\Venta;
 use App\Services\CajaService;
 use App\Services\VentaService;
 use App\Support\Permisos as PermisosDisponibles;
+use Database\Seeders\CajaFisicaSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Inertia\Testing\AssertableInertia;
@@ -157,6 +158,7 @@ class VentasHistorialTest extends TestCase
         $cajeroB = $this->crearUsuarioConRol(Rol::CAJERO, [PermisosDisponibles::VENTAS_VER]);
         $producto = $this->crearVendible('Papa', 'KILOGRAMO', 1000);
 
+        $this->seed(CajaFisicaSeeder::class);
         $this->crearVenta($cajeroA, [['producto_id' => $producto->id, 'cantidad' => 1]]);
         $this->crearVenta($cajeroB, [['producto_id' => $producto->id, 'cantidad' => 1]]);
 
@@ -349,17 +351,19 @@ class VentasHistorialTest extends TestCase
 
     private function cerrarCaja(Usuario $cajero, Caja $caja, float $contado): void
     {
-        app(CajaService::class)->cerrar($caja, $contado);
+        app(CajaService::class)->cerrar($cajero, $caja, $contado);
     }
 
     private function abrirCajaAbiertaPara(Usuario $cajero): Caja
     {
-        return app(CajaService::class)->actual() ?? $this->abrirCaja($cajero, 0);
+        return app(CajaService::class)->actualDelUsuario($cajero) ?? $this->abrirCaja($cajero, 0);
     }
 
     private function crearVentaEnCaja(Usuario $cajero, Caja $caja, array $items, string $medioPago = 'EFECTIVO'): Venta
     {
-        return app(VentaService::class)->registrar($cajero, $medioPago, $items);
+        $efectivoRecibido = $medioPago === 'EFECTIVO' ? $this->totalDeItems($items) : null;
+
+        return app(VentaService::class)->registrar($cajero, $medioPago, $items, $efectivoRecibido);
     }
 
     private function crearVenta(Usuario $cajero, array $items, string $medioPago = 'EFECTIVO'): Venta

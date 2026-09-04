@@ -14,6 +14,7 @@ class CerrarCajaRequest extends FormRequest
     {
         return [
             'efectivo_contado' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            'observacion' => ['nullable', 'string', 'max:5000'],
         ];
     }
 }

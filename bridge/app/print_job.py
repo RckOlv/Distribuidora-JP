@@ -37,6 +37,12 @@ class TicketSnapshot:
     def total(self) -> Any:
         return self.contenido.get("total", 0)
 
+    def efectivo_recibido(self) -> Any:
+        return self.contenido.get("efectivo_recibido")
+
+    def vuelto(self) -> Any:
+        return self.contenido.get("vuelto")
+
     def detalles(self) -> list[dict[str, Any]]:
         return list(self.contenido.get("detalles", []))
 
@@ -67,10 +73,17 @@ class TicketSnapshot:
             ) from None
 
 
-def generar_ticket(snapshot: TicketSnapshot) -> bytes:
-    """Genera los bytes ESC/POS para un ticket real de venta."""
+def generar_ticket(snapshot: TicketSnapshot, es_reimpresion: bool = False) -> bytes:
+    """Genera los bytes ESC/POS para un ticket real de venta.
+
+    ``es_reimpresion=True`` agrega una marca visual "REIMPRESION" sin alterar
+    los datos comerciales del snapshot.
+    """
     snapshot.validar()
     esc = EscPos()
+    if es_reimpresion:
+        esc.texto("*** REIMPRESION ***", negrita=True, alinear=EscPos.ALINEAR_CENTRO)
+        esc.alimentar(1)
     # cabecera del comercio
     esc.texto(str(snapshot.comercio().get("nombre", "Mi Verdulería")).upper(),
               negrita=True, doble=True, alinear=EscPos.ALINEAR_CENTRO)
@@ -119,6 +132,25 @@ def generar_ticket(snapshot: TicketSnapshot) -> bytes:
 
     # total
     esc.fila_alineada("TOTAL", formatear_moneda(snapshot.total()))
+
+    # efectivo: monto recibido y vuelto (solo en ventas en efectivo)
+    recibido = snapshot.efectivo_recibido()
+    vuelto = snapshot.vuelto()
+    if recibido is not None:
+        try:
+            esc.fila_alineada("Recibido", formatear_moneda(recibido))
+        except (TypeError, ValueError):
+            raise ErrorPermanente(
+                f"Snapshot inválido: 'efectivo_recibido' no interpretable "
+                f"({recibido!r})."
+            ) from None
+    if vuelto is not None:
+        try:
+            esc.fila_alineada("Vuelto", formatear_moneda(vuelto))
+        except (TypeError, ValueError):
+            raise ErrorPermanente(
+                f"Snapshot inválido: 'vuelto' no interpretable ({vuelto!r})."
+            ) from None
 
     # leyenda de agradecimiento
     leyenda = str(snapshot.comercio().get("leyenda", "Gracias por su compra")).strip()

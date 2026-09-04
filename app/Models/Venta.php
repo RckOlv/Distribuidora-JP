@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EstadoPagoVenta;
 use App\Enums\MedioPago;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,14 +16,25 @@ class Venta extends Model
         'caja_id',
         'medio_pago',
         'total',
+        'efectivo_recibido',
+        'vuelto',
+        'estado_pago',
     ];
 
     protected function casts(): array
     {
         return [
             'medio_pago' => MedioPago::class,
+            'estado_pago' => EstadoPagoVenta::class,
             'total' => 'decimal:2',
+            'efectivo_recibido' => 'decimal:2',
+            'vuelto' => 'decimal:2',
         ];
+    }
+
+    public function esPagada(): bool
+    {
+        return $this->estado_pago === EstadoPagoVenta::PAGADA;
     }
 
     public function usuario(): BelongsTo

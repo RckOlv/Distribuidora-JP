@@ -7,7 +7,7 @@ import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { formatoMoneda, opcionesUnidad, unidadDescripcion } from '@/helpers/formato';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { Categoria, Producto, UnidadVenta } from '@/types';
 
 const props = defineProps<{
@@ -19,12 +19,51 @@ const form = useForm({
     nombre: props.producto.nombre,
     categoria_id: String(props.producto.categoria_id),
     unidad_medida: props.producto.unidad_medida,
+    monto: props.producto.precio_vigente?.monto ?? '',
+    costo: props.producto.costo_vigente?.precio ?? '',
     codigo: props.producto.codigo ?? '',
     descripcion: props.producto.descripcion ?? '',
-    monto: props.producto.precio_vigente?.monto ?? '',
     imagen: null as File | null,
     quitar_imagen: false,
 });
+
+const nombreDuplicado = ref(false);
+let temporizadorNombre: ReturnType<typeof setTimeout> | null = null;
+
+const verificarNombre = async () => {
+    const nombre = form.nombre.trim();
+
+    if (nombre.length === 0) {
+        nombreDuplicado.value = false;
+        return;
+    }
+
+    try {
+        const params = new URLSearchParams({
+            nombre,
+            excepto: String(props.producto.id),
+        });
+        const resp = await fetch(
+            `${route('productos.verificar-nombre')}?${params.toString()}`,
+            { headers: { Accept: 'application/json' } },
+        );
+        const datos = (await resp.json()) as { existe: boolean };
+        nombreDuplicado.value = datos.existe;
+    } catch {
+        nombreDuplicado.value = false;
+    }
+};
+
+watch(
+    () => form.nombre,
+    () => {
+        if (temporizadorNombre) {
+            clearTimeout(temporizadorNombre);
+        }
+
+        temporizadorNombre = setTimeout(verificarNombre, 400);
+    },
+);
 
 const previewImagen = ref<string | null>(null);
 
@@ -91,6 +130,12 @@ const opciones = opcionesUnidad();
                             maxlength="150"
                         />
                         <InputError class="mt-2" :message="form.errors.nombre" />
+                        <p
+                            v-if="nombreDuplicado"
+                            class="mt-2 text-sm text-red-600"
+                        >
+                            Ya existe un producto con ese nombre.
+                        </p>
                     </div>
 
                     <div class="mt-4">
@@ -147,6 +192,52 @@ const opciones = opcionesUnidad();
                             class="mt-2"
                             :message="form.errors.unidad_medida"
                         />
+                    </div>
+
+                    <div class="mt-4">
+                        <InputLabel for="costo" value="Precio de costo (opcional)" />
+                        <TextInput
+                            id="costo"
+                            v-model="form.costo"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            class="mt-1 block w-full"
+                            placeholder="Ej.: 1200"
+                        />
+                        <p class="mt-1 text-xs text-gray-500">
+                            {{
+                                producto.costo_vigente
+                                    ? `Costo actual: ${formatoMoneda(
+                                          producto.costo_vigente.precio,
+                                      )}. Un cambio de importe crea una nueva fila de costo vigente y conserva el historial; si el importe no cambia, no se registra ninguna fila nueva.`
+                                    : 'El producto aún no tiene costo registrado. Al guardar con un importe se crea el costo vigente.'
+                            }}
+                        </p>
+                        <InputError class="mt-2" :message="form.errors.costo" />
+                    </div>
+
+                    <div class="mt-4">
+                        <InputLabel for="monto" value="Precio de venta vigente" />
+                        <TextInput
+                            id="monto"
+                            v-model="form.monto"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            class="mt-1 block w-full"
+                            placeholder="Ej.: 1800"
+                        />
+                        <p class="mt-1 text-xs text-gray-500">
+                            {{
+                                producto.precio_vigente
+                                    ? `Precio actual: ${formatoMoneda(
+                                          producto.precio_vigente.monto,
+                                      )}. Un cambio de importe crea una nueva fila de precio vigente y conserva el historial; si el importe no cambia, no se registra ninguna fila nueva.`
+                                    : 'El producto aún no tiene precio vigente.'
+                            }}
+                        </p>
+                        <InputError class="mt-2" :message="form.errors.monto" />
                     </div>
 
                     <div class="mt-4">
@@ -209,29 +300,6 @@ const opciones = opcionesUnidad();
                             Quitar imagen actual
                         </label>
                         <InputError class="mt-2" :message="form.errors.imagen" />
-                    </div>
-
-                    <div class="mt-4">
-                        <InputLabel for="monto" value="Precio vigente" />
-                        <TextInput
-                            id="monto"
-                            v-model="form.monto"
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            class="mt-1 block w-full"
-                            placeholder="Ej.: 1800"
-                        />
-                        <p class="mt-1 text-xs text-gray-500">
-                            {{
-                                producto.precio_vigente
-                                    ? `Precio actual: ${formatoMoneda(
-                                          producto.precio_vigente.monto,
-                                      )}. Un cambio de importe crea una nueva fila de precio vigente y conserva el historial; si el importe no cambia, no se registra ninguna fila nueva.`
-                                    : 'El producto aún no tiene precio vigente.'
-                            }}
-                        </p>
-                        <InputError class="mt-2" :message="form.errors.monto" />
                     </div>
 
                     <div class="mt-4">

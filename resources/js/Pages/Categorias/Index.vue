@@ -42,7 +42,7 @@ const toggleEstado = (categoria: Categoria) => {
                     </Link>
                 </div>
 
-                <div class="mt-6 overflow-hidden bg-white shadow sm:rounded-lg">
+                <div class="mt-6 -mx-4 overflow-x-auto px-4 bg-white shadow sm:mx-0 sm:rounded-lg sm:px-0">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>

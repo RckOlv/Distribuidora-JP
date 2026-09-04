@@ -17,13 +17,14 @@ defineProps<{
 const formMovimiento = useForm({
     tipo: 'INGRESO',
     monto: '',
+    medio_pago: 'EFECTIVO',
     concepto: '',
 });
 
 const submitMovimiento = () => {
     formMovimiento.post(route('caja.movimiento'), {
         preserveScroll: true,
-        onSuccess: () => formMovimiento.reset('monto', 'concepto'),
+        onSuccess: () => formMovimiento.reset('monto', 'medio_pago', 'concepto'),
     });
 };
 
@@ -61,7 +62,11 @@ const fecha = (iso: string | null) => {
                         :href="route('caja.cerrar.form')"
                         class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                     >
-                        Cerrar caja
+                        Cerrar caja{{
+                            resumen?.caja_fisica_nombre
+                                ? ` ${resumen.caja_fisica_nombre}`
+                                : ''
+                        }}
                     </Link>
                 </div>
 
@@ -72,7 +77,7 @@ const fecha = (iso: string | null) => {
                 >
                     <div class="px-6 py-16 text-center">
                         <p class="text-lg font-medium text-gray-900">
-                            No hay una caja abierta
+                            No tenés una caja abierta
                         </p>
                         <p class="mx-auto mt-2 max-w-md text-sm text-gray-600">
                             Para comenzar a vender desde el POS es necesario
@@ -98,11 +103,20 @@ const fecha = (iso: string | null) => {
                                 <h3 class="text-lg font-semibold text-gray-900">
                                     Resumen de caja
                                 </h3>
-                                <span
-                                    class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700"
-                                >
-                                    Abierta
-                                </span>
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        v-if="resumen.caja_fisica_nombre"
+                                        class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700"
+                                    >
+                                        Caja actual:
+                                        {{ resumen.caja_fisica_nombre }}
+                                    </span>
+                                    <span
+                                        class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700"
+                                    >
+                                        Abierta
+                                    </span>
+                                </div>
                             </div>
                             <dl class="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                                 <div>
@@ -204,9 +218,72 @@ const fecha = (iso: string | null) => {
                                 <dd class="mt-1 text-2xl font-bold text-green-800">
                                     {{ formatoMoneda(resumen.efectivo_esperado) }}
                                 </dd>
+</div>
+                    </div>
+
+                    <!-- Historial de movimientos -->
+                    <div class="overflow-hidden bg-white shadow sm:rounded-lg">
+                        <div class="border-b border-gray-200 px-6 py-4">
+                            <h3 class="text-lg font-semibold text-gray-900">
+                                Movimientos del día
+                            </h3>
+                            <p class="mt-1 text-sm text-gray-600">
+                                Ingresos y egresos manuales con su medio de pago.
+                            </p>
+                        </div>
+                        <div v-if="resumen.movimientos.length > 0">
+                            <div
+                                v-for="mov in resumen.movimientos"
+                                :key="mov.id"
+                                class="grid grid-cols-2 gap-3 border-b border-gray-100 px-6 py-3 text-sm last:border-b-0 sm:grid-cols-12"
+                            >
+                                <div class="sm:col-span-2">
+                                    <span
+                                        class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                                        :class="
+                                            mov.tipo === 'INGRESO'
+                                                ? 'bg-green-100 text-green-700'
+                                                : 'bg-red-100 text-red-700'
+                                        "
+                                    >
+                                        {{ mov.tipo_etiqueta }}
+                                    </span>
+                                </div>
+                                <div
+                                    class="font-medium text-gray-900 sm:col-span-5"
+                                >
+                                    {{ mov.concepto }}
+                                </div>
+                                <div class="sm:col-span-3">
+                                    <span
+                                        v-if="mov.medio_pago_etiqueta"
+                                        class="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700"
+                                    >
+                                        {{ mov.medio_pago_etiqueta }}
+                                    </span>
+                                    <span v-else class="text-gray-400">—</span>
+                                </div>
+                                <div
+                                    class="text-right font-medium sm:col-span-2"
+                                    :class="
+                                        mov.tipo === 'INGRESO'
+                                            ? 'text-green-700'
+                                            : 'text-red-700'
+                                    "
+                                >
+                                    {{ mov.tipo === 'INGRESO' ? '+' : '−' }}
+                                    {{ formatoMoneda(mov.monto) }}
+                                </div>
                             </div>
                         </div>
+                        <div
+                            v-else
+                            class="px-6 py-8 text-center text-sm text-gray-500"
+                        >
+                            Todavía no se registraron movimientos manuales.
+                        </div>
                     </div>
+                </div>
 
                     <!-- Movimiento manual -->
                     <div class="overflow-hidden bg-white shadow sm:rounded-lg">
@@ -244,6 +321,23 @@ const fecha = (iso: string | null) => {
                                         :message="formMovimiento.errors.monto"
                                     />
                                 </div>
+                                <div>
+                                    <InputLabel value="Medio de pago" />
+                                    <select
+                                        v-model="formMovimiento.medio_pago"
+                                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm"
+                                    >
+                                        <option value="EFECTIVO">Efectivo</option>
+                                        <option value="TRANSFERENCIA">
+                                            Transferencia
+                                        </option>
+                                        <option value="TARJETA">Tarjeta</option>
+                                    </select>
+                                    <InputError
+                                        class="mt-2"
+                                        :message="formMovimiento.errors.medio_pago"
+                                    />
+                                </div>
                                 <div class="lg:col-span-2">
                                     <InputLabel value="Concepto" />
                                     <TextInput
@@ -272,6 +366,7 @@ const fecha = (iso: string | null) => {
                                         @click="
                                             formMovimiento.reset(
                                                 'monto',
+                                                'medio_pago',
                                                 'concepto',
                                             )
                                         "

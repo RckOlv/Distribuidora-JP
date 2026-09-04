@@ -9,13 +9,18 @@ import {
     normalizarPeso,
 } from '@/helpers/carrito';
 import { formatoMoneda } from '@/helpers/formato';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import {
+    confirmarAccion,
+    notificarError,
+} from '@/helpers/notificaciones';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import type {
     CategoriaVenta,
     ItemCarrito,
     MedioPago,
     OpcionMedioPago,
     ProductoVenta,
+    VentaPendiente,
 } from '@/types';
 
 const props = defineProps<{
@@ -23,7 +28,10 @@ const props = defineProps<{
     productos: ProductoVenta[];
     medios_pago: OpcionMedioPago[];
     caja_abierta: boolean;
+    caja_sesion_id: number | null;
+    caja_fisica_nombre: string | null;
     puede_abrir_caja: boolean;
+    ventas_pendientes: VentaPendiente[];
 }>();
 
 const carrito = ref<ItemCarrito[]>([]);
@@ -42,9 +50,56 @@ const inputPeso = ref<HTMLInputElement | null>(null);
 const form = useForm<{
     medio_pago: MedioPago;
     items: { producto_id: number; cantidad: number }[];
+    efectivo_recibido?: number;
 }>({
     medio_pago: 'EFECTIVO',
     items: [],
+});
+
+const esEfectivo = computed(() => medioPago.value === 'EFECTIVO');
+
+const efectivoRecibido = ref('');
+
+const efectivoRecibidoNum = computed<number | null>(() => {
+    const texto = efectivoRecibido.value.trim().replace(',', '.');
+
+    if (texto === '') {
+        return null;
+    }
+
+    const numero = Number(texto);
+
+    return Number.isFinite(numero) && numero > 0 ? numero : null;
+});
+
+const vuelto = computed<number | null>(() => {
+    if (
+        !esEfectivo.value ||
+        efectivoRecibidoNum.value === null ||
+        total.value <= 0
+    ) {
+        return null;
+    }
+
+    const diferencia = efectivoRecibidoNum.value - total.value;
+
+    return diferencia >= 0 ? diferencia : null;
+});
+
+const errorEfectivoRecibido = computed<string | null>(() => {
+    if (!esEfectivo.value || total.value <= 0) {
+        return null;
+    }
+
+    if (efectivoRecibidoNum.value === null) {
+        return 'Indicá cuánto efectivo recibís para cobrar.';
+    }
+
+    if (efectivoRecibidoNum.value < total.value) {
+        return 'El efectivo recibido no alcanza para cubrir el total.';
+    }
+
+    return null;
 });
 
 const paso = (producto: ProductoVenta): number =>
@@ -273,11 +328,39 @@ const vaciarCarrito = (): void => {
     aviso.value = null;
 };
 
-const confirmarVenta = (): void => {
+const esPagoPendiente = (medio: MedioPago): boolean =>
+    medio === 'TRANSFERENCIA' || medio === 'TARJETA';
+
+const confirmarVenta = async (): Promise<void> => {
     if (erroresClientes.value) {
         aviso.value = erroresClientes.value;
 
         return;
+    }
+
+    if (esEfectivo.value && errorEfectivoRecibido.value) {
+        aviso.value = errorEfectivoRecibido.value;
+
+        return;
+    }
+
+    const destino = esPagoPendiente(medioPago.value)
+        ? route('pos.ventas.pendiente')
+        : route('pos.ventas.store');
+
+    if (esPagoPendiente(medioPago.value)) {
+        const confirmado = await confirmarAccion({
+            titulo: 'Venta pendiente de pago',
+            texto: `Se registra la venta como PENDIENTE hasta confirmar el pago. Total: ${formatoMoneda(
+                total.value,
+            )}.`,
+            textoConfirmar: 'Registrar pendiente',
+            icono: 'info',
+        });
+
+        if (!confirmado) {
+            return;
+        }
     }
 
     form.clearErrors();
@@ -287,14 +370,79 @@ const confirmarVenta = (): void => {
             producto_id: item.producto.id,
             cantidad: item.cantidad,
         })),
-    })).post(route('pos.ventas.store'), {
+        ...(esEfectivo.value
+            ? {
+                  efectivo_recibido:
+                      efectivoRecibidoNum.value as number,
+              }
+            : {}),
+    })).post(destino, {
         preserveScroll: true,
         onSuccess: () => {
             carrito.value = [];
+            efectivoRecibido.value = '';
             aviso.value = null;
             enfocarScanner();
         },
-        onError: enfocarScanner,
+        onError: () => {
+            const mensaje = Object.values(form.errors)[0];
+            if (mensaje) {
+                notificarError(mensaje);
+            }
+            enfocarScanner();
+        },
+    });
+};
+
+const confirmarPagoPendiente = async (venta: VentaPendiente): Promise<void> => {
+    const confirmado = await confirmarAccion({
+        titulo: 'Confirmar pago',
+        texto: `¿Confirmás el pago de la venta N° ${venta.numero} por ${formatoMoneda(
+            venta.total,
+        )} (${venta.medio_pago_etiqueta})?`,
+        textoConfirmar: 'Sí, confirmar pago',
+        icono: 'question',
+    });
+
+    if (!confirmado) {
+        return;
+    }
+
+    router.post(route('pos.ventas.confirmar', venta.id), undefined, {
+        preserveScroll: true,
+        preserveState: false,
+        onError: (errores) => {
+            const mensaje = Object.values(errores)[0];
+            if (mensaje) {
+                notificarError(mensaje);
+            }
+        },
+    });
+};
+
+const cancelarPendiente = async (venta: VentaPendiente): Promise<void> => {
+    const confirmado = await confirmarAccion({
+        titulo: 'Cancelar venta pendiente',
+        texto: `¿Cancelás la venta pendiente N° ${venta.numero} por ${formatoMoneda(
+            venta.total,
+        )}? Esta acción no se puede deshacer.`,
+        textoConfirmar: 'Sí, cancelar',
+        peligro: true,
+    });
+
+    if (!confirmado) {
+        return;
+    }
+
+    router.post(route('pos.ventas.cancelar', venta.id), undefined, {
+        preserveScroll: true,
+        preserveState: false,
+        onError: (errores) => {
+            const mensaje = Object.values(errores)[0];
+            if (mensaje) {
+                notificarError(mensaje);
+            }
+        },
     });
 };
 </script>
@@ -332,8 +480,77 @@ const confirmarVenta = (): void => {
 
         <div v-else class="py-6">
             <div
+                v-if="props.caja_fisica_nombre"
+                class="mx-auto mb-4 flex max-w-screen-2xl items-center justify-between gap-2 px-4 sm:px-6 2xl:px-8"
+            >
+                <span class="text-sm font-medium text-gray-700">POS</span>
+                <span
+                    class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700"
+                >
+                    <span class="h-2 w-2 rounded-full bg-green-600"></span>
+                    Caja:
+                    {{ props.caja_fisica_nombre }}
+                </span>
+            </div>
+            <div
                 class="mx-auto grid max-w-screen-2xl grid-cols-1 gap-4 px-4 sm:px-6 lg:grid-cols-3 2xl:px-8"
             >
+                <!-- Ventas pendientes de pago -->
+                <div
+                    v-if="props.ventas_pendientes.length > 0"
+                    class="rounded-lg bg-white p-4 shadow-sm lg:col-span-3"
+                >
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-base font-semibold text-gray-900">
+                            Ventas pendientes de pago
+                        </h3>
+                        <span
+                            class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
+                        >
+                            {{ props.ventas_pendientes.length }}
+                        </span>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div
+                            v-for="pendiente in props.ventas_pendientes"
+                            :key="pendiente.id"
+                            class="rounded-lg border border-amber-200 bg-amber-50 p-3"
+                        >
+                            <div class="flex items-center justify-between">
+                                <p class="text-sm font-semibold text-gray-900">
+                                    N° {{ pendiente.numero }}
+                                </p>
+                                <span class="text-xs text-gray-500">
+                                    {{ pendiente.medio_pago_etiqueta }}
+                                </span>
+                            </div>
+                            <p class="mt-1 text-lg font-bold text-gray-900">
+                                {{ formatoMoneda(pendiente.total) }}
+                            </p>
+                            <p class="text-xs text-gray-500">
+                                {{ pendiente.cantidad_items }} ítem(s)
+                            </p>
+                            <div class="mt-3 flex gap-2">
+                                <button
+                                    type="button"
+                                    @click="confirmarPagoPendiente(pendiente)"
+                                    class="flex-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-green-700"
+                                >
+                                    Confirmar pago
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="cancelarPendiente(pendiente)"
+                                    class="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-red-600 ring-1 ring-inset ring-red-200 transition hover:bg-red-50"
+                                >
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Catalogo -->
                 <div class="space-y-4 lg:col-span-2">
                     <div class="rounded-lg bg-white p-4 shadow-sm">
@@ -595,6 +812,41 @@ const confirmarVenta = (): void => {
                             >
                                 {{ medio.etiqueta }}
                             </button>
+                        </div>
+
+                        <div v-if="esEfectivo && carrito.length > 0" class="mt-3">
+                            <label
+                                for="efectivo-recibido"
+                                class="text-sm font-medium text-gray-700"
+                            >
+                                Efectivo recibido
+                            </label>
+                            <input
+                                id="efectivo-recibido"
+                                v-model="efectivoRecibido"
+                                type="text"
+                                inputmode="decimal"
+                                autocomplete="off"
+                                placeholder="Monto que te da el cliente (ej. 1000)"
+                                class="mt-1 block w-full rounded-md border-gray-300 text-lg shadow-sm focus:border-green-500 focus:ring-green-500"
+                            />
+                            <p
+                                v-if="errorEfectivoRecibido"
+                                class="mt-1 text-sm text-red-600"
+                            >
+                                {{ errorEfectivoRecibido }}
+                            </p>
+                            <div
+                                v-if="vuelto !== null"
+                                class="mt-2 flex items-center justify-between rounded-md bg-green-50 px-3 py-2"
+                            >
+                                <span class="text-sm font-medium text-green-800">
+                                    Vuelto
+                                </span>
+                                <span class="text-xl font-bold text-green-800">
+                                    {{ formatoMoneda(vuelto) }}
+                                </span>
+                            </div>
                         </div>
 
                         <p

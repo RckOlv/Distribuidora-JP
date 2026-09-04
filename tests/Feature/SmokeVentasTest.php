@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Caja;
+use App\Models\CajaFisica;
 use App\Models\Categoria;
 use App\Models\Permiso;
 use App\Models\Precio;
@@ -26,7 +27,8 @@ class SmokeVentasTest extends TestCase
         $producto = $this->producto('Banana', 'KILOGRAMO', 2500);
 
         // 1. abrir caja
-        $this->actingAs($cajero)->post('/caja/abrir', ['monto_inicial' => 10000])->assertRedirect();
+        $cajaFisica = CajaFisica::factory()->create();
+        $this->actingAs($cajero)->post('/caja/abrir', ['monto_inicial' => 10000, 'caja_fisica_id' => $cajaFisica->id])->assertRedirect();
         $caja = Caja::first();
         $this->assertSame('ABIERTA', $caja->estado->value);
 
@@ -34,6 +36,7 @@ class SmokeVentasTest extends TestCase
         $this->actingAs($cajero)->post('/pos/ventas', [
             'medio_pago' => 'EFECTIVO',
             'items' => [['producto_id' => $producto->id, 'cantidad' => 2]],
+            'efectivo_recibido' => 5000,
         ])->assertRedirect();
 
         // 3. aparece en /ventas

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
@@ -7,12 +7,34 @@ import NavLink from '@/Components/NavLink.vue';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import { usePermisos } from '@/composables/usePermisos';
+import { notificarError, notificarExito } from '@/helpers/notificaciones';
 
 const { can } = usePermisos();
 
+const esCajero = computed(() => usePage().props.auth.user?.rol === 'CAJERO');
+
 const showingNavigationDropdown = ref(false);
 
-const flashSuccess = computed(() => usePage().props.flash?.success);
+const page = usePage();
+
+const flashSuccess = computed(() => page.props.flash?.success);
+const flashError = computed(() => page.props.flash?.error);
+
+watch(flashSuccess, (mensaje) => {
+    if (mensaje) {
+        notificarExito(mensaje);
+    }
+});
+
+watch(flashError, (mensaje) => {
+    if (!mensaje) {
+        return;
+    }
+
+    const texto = Array.isArray(mensaje) ? mensaje.join(', ') : mensaje;
+
+    notificarError(texto);
+});
 
 const rolLabel = computed(() => {
     const rol = usePage().props.auth.user?.rol;
@@ -55,7 +77,7 @@ const rolLabel = computed(() => {
                                 </NavLink>
 
                                 <NavLink
-                                    v-if="can('categorias.ver')"
+                                    v-if="!esCajero && can('categorias.ver')"
                                     :href="route('categorias.index')"
                                     :active="route().current('categorias.*')"
                                 >
@@ -63,7 +85,7 @@ const rolLabel = computed(() => {
                                 </NavLink>
 
                                 <NavLink
-                                    v-if="can('productos.ver')"
+                                    v-if="!esCajero && can('productos.ver')"
                                     :href="route('productos.index')"
                                     :active="route().current('productos.*')"
                                 >
@@ -87,7 +109,7 @@ const rolLabel = computed(() => {
                                 </NavLink>
 
                                 <NavLink
-                                    v-if="can('ventas.ver')"
+                                    v-if="!esCajero && can('ventas.ver')"
                                     :href="route('ventas.index')"
                                     :active="route().current('ventas.*')"
                                 >
@@ -100,6 +122,22 @@ const rolLabel = computed(() => {
                                     :active="route().current('usuarios.*')"
                                 >
                                     Usuarios
+                                </NavLink>
+
+                                <NavLink
+                                    v-if="can('auditoria.ver')"
+                                    :href="route('auditoria.index')"
+                                    :active="route().current('auditoria.*')"
+                                >
+                                    Auditoría
+                                </NavLink>
+
+                                <NavLink
+                                    v-if="can('reportes.ver')"
+                                    :href="route('reportes.index')"
+                                    :active="route().current('reportes.*')"
+                                >
+                                    Reportes
                                 </NavLink>
                             </div>
                         </div>
@@ -226,7 +264,7 @@ const rolLabel = computed(() => {
                         </ResponsiveNavLink>
 
                         <ResponsiveNavLink
-                            v-if="can('categorias.ver')"
+                            v-if="!esCajero && can('categorias.ver')"
                             :href="route('categorias.index')"
                             :active="route().current('categorias.*')"
                         >
@@ -234,7 +272,7 @@ const rolLabel = computed(() => {
                         </ResponsiveNavLink>
 
                         <ResponsiveNavLink
-                            v-if="can('productos.ver')"
+                            v-if="!esCajero && can('productos.ver')"
                             :href="route('productos.index')"
                             :active="route().current('productos.*')"
                         >
@@ -258,7 +296,7 @@ const rolLabel = computed(() => {
                         </ResponsiveNavLink>
 
                         <ResponsiveNavLink
-                            v-if="can('ventas.ver')"
+                            v-if="!esCajero && can('ventas.ver')"
                             :href="route('ventas.index')"
                             :active="route().current('ventas.*')"
                         >
@@ -271,6 +309,22 @@ const rolLabel = computed(() => {
                             :active="route().current('usuarios.*')"
                         >
                             Usuarios
+                        </ResponsiveNavLink>
+
+                        <ResponsiveNavLink
+                            v-if="can('auditoria.ver')"
+                            :href="route('auditoria.index')"
+                            :active="route().current('auditoria.*')"
+                        >
+                            Auditoría
+                        </ResponsiveNavLink>
+
+                        <ResponsiveNavLink
+                            v-if="can('reportes.ver')"
+                            :href="route('reportes.index')"
+                            :active="route().current('reportes.*')"
+                        >
+                            Reportes
                         </ResponsiveNavLink>
                     </div>
 
@@ -313,17 +367,6 @@ const rolLabel = computed(() => {
 
             <!-- Contenido de la pagina -->
             <main>
-                <div
-                    v-if="flashSuccess"
-                    class="mx-auto mt-4 max-w-7xl px-4 sm:px-6 lg:px-8"
-                >
-                    <div
-                        class="rounded-md bg-green-50 px-4 py-3 text-sm font-medium text-green-700"
-                    >
-                        {{ flashSuccess }}
-                    </div>
-                </div>
-
                 <slot />
             </main>
         </div>

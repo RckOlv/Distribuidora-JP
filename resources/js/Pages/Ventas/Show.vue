@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import PrimaryButton from '@/Components/PrimaryButton.vue';
 import { formatoMoneda } from '@/helpers/formato';
+import { notificarError } from '@/helpers/notificaciones';
 import { Head, Link } from '@inertiajs/vue3';
-import type { DetalleVentaHistorial, VentaDetalle } from '@/types';
+import { ref } from 'vue';
+import type {
+    DetalleVentaHistorial,
+    TrabajoImpresionDetalle,
+    VentaDetalle,
+} from '@/types';
 
-defineProps<{
+const props = defineProps<{
     venta: VentaDetalle;
     detalles: DetalleVentaHistorial[];
+    trabajos: TrabajoImpresionDetalle[];
 }>();
+
+const descargandoPdf = ref(false);
 
 const fecha = (iso: string | null) => {
     if (!iso) {
@@ -43,6 +53,48 @@ const etiquetaEstado = (estado: string | null): string => {
             return 'Sin ticket';
     }
 };
+
+const descargarPdf = async () => {
+    if (descargandoPdf.value) {
+        return;
+    }
+
+    descargandoPdf.value = true;
+
+    try {
+        const respuesta = await window.axios.get(
+            route('ventas.ticket-pdf', props.venta.id),
+            { responseType: 'blob' },
+        );
+
+        const url = URL.createObjectURL(respuesta.data);
+        const enlace = document.createElement('a');
+        enlace.href = url;
+
+        const encabezado = respuesta.headers['content-disposition'] ?? '';
+        const partida = /filename="?([^";]+)"?/.exec(encabezado);
+        enlace.download = partida?.[1] ?? `ticket-${props.venta.numero}.pdf`;
+
+        document.body.appendChild(enlace);
+        enlace.click();
+        document.body.removeChild(enlace);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        let mensaje = 'No se pudo descargar el ticket.';
+        const datos =
+            (error as { response?: { data?: Blob } }).response?.data;
+
+        if (datos instanceof Blob) {
+            const texto = await datos.text().catch(() => '');
+            if (texto) {
+                mensaje = texto;
+            }
+        }
+        notificarError(mensaje, 'Error al descargar el ticket');
+    } finally {
+        descargandoPdf.value = false;
+    }
+};
 </script>
 
 <template>
@@ -51,13 +103,27 @@ const etiquetaEstado = (estado: string | null): string => {
 
         <div class="py-12">
             <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-                <div class="flex items-center gap-4">
+                <div class="flex items-center justify-between">
                     <Link
                         :href="route('ventas.index')"
                         class="text-sm font-medium text-green-600 hover:text-green-900"
                     >
                         ← Volver al historial
                     </Link>
+
+                    <PrimaryButton
+                        v-if="venta.ticket"
+                        type="button"
+                        :class="{ 'opacity-25': descargandoPdf }"
+                        :disabled="descargandoPdf"
+                        @click="descargarPdf"
+                    >
+                        {{
+                            descargandoPdf
+                                ? 'Descargando…'
+                                : 'Descargar ticket PDF'
+                        }}
+                    </PrimaryButton>
                 </div>
 
                 <h2 class="mt-4 text-2xl font-semibold text-gray-900">
@@ -114,16 +180,23 @@ const etiquetaEstado = (estado: string | null): string => {
                         </div>
                         <div>
                             <dt class="text-xs uppercase tracking-wider text-gray-500">
-                                Impresión
+                                Impresión original
                             </dt>
                             <dd class="mt-1 text-sm font-medium text-gray-900">
-                                {{ etiquetaEstado(venta.ticket?.estado_impresion ?? null) }}
+                                {{
+                                    etiquetaEstado(
+                                        venta.ticket?.estado_impresion ??
+                                            null,
+                                    )
+                                }}
                             </dd>
                         </div>
                     </dl>
                 </div>
 
-                <div class="mt-6 overflow-hidden rounded-lg bg-white shadow-sm">
+                <div
+                    class="mt-6 overflow-hidden rounded-lg bg-white shadow-sm"
+                >
                     <div class="border-b border-gray-200 px-6 py-4">
                         <h3 class="text-lg font-semibold text-gray-900">
                             Productos
@@ -183,12 +256,18 @@ const etiquetaEstado = (estado: string | null): string => {
                                     <td
                                         class="px-6 py-4 text-end text-sm text-gray-500"
                                     >
-                                        {{ formatoMoneda(detalle.precio_unitario) }}
+                                        {{
+                                            formatoMoneda(
+                                                detalle.precio_unitario,
+                                            )
+                                        }}
                                     </td>
                                     <td
                                         class="px-6 py-4 text-end text-sm font-medium text-gray-900"
                                     >
-                                        {{ formatoMoneda(detalle.subtotal) }}
+                                        {{
+                                            formatoMoneda(detalle.subtotal)
+                                        }}
                                     </td>
                                 </tr>
                                 <tr v-if="detalles.length === 0">
@@ -211,6 +290,79 @@ const etiquetaEstado = (estado: string | null): string => {
                         <span class="text-2xl font-bold text-gray-900">
                             {{ formatoMoneda(venta.total) }}
                         </span>
+                    </div>
+                </div>
+
+                <div
+                    v-if="trabajos.length > 0"
+                    class="mt-6 overflow-hidden rounded-lg bg-white shadow-sm"
+                >
+                    <div class="border-b border-gray-200 px-6 py-4">
+                        <h3 class="text-lg font-semibold text-gray-900">
+                            Impresiones
+                        </h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th
+                                        class="px-6 py-3 text-start text-xs font-medium uppercase tracking-wider text-gray-500"
+                                    >
+                                        Tipo
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-start text-xs font-medium uppercase tracking-wider text-gray-500"
+                                    >
+                                        Solicitó
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-start text-xs font-medium uppercase tracking-wider text-gray-500"
+                                    >
+                                        Fecha
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-start text-xs font-medium uppercase tracking-wider text-gray-500"
+                                    >
+                                        Motivo
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-end text-xs font-medium uppercase tracking-wider text-gray-500"
+                                    >
+                                        Estado
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 bg-white">
+                                <tr v-for="trabajo in trabajos" :key="trabajo.id">
+                                    <td
+                                        class="px-6 py-3 text-sm font-medium text-gray-900"
+                                    >
+                                        {{ trabajo.tipo_etiqueta }}
+                                    </td>
+                                    <td
+                                        class="px-6 py-3 text-sm text-gray-500"
+                                    >
+                                        {{ trabajo.usuario ?? '—' }}
+                                    </td>
+                                    <td
+                                        class="px-6 py-3 text-sm text-gray-500"
+                                    >
+                                        {{ fecha(trabajo.solicitado_en) }}
+                                    </td>
+                                    <td
+                                        class="px-6 py-3 text-sm text-gray-500"
+                                    >
+                                        {{ trabajo.motivo ?? '—' }}
+                                    </td>
+                                    <td
+                                        class="px-6 py-3 text-end text-sm font-medium"
+                                    >
+                                        {{ trabajo.estado_etiqueta }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>

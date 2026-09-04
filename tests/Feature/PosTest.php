@@ -163,6 +163,7 @@ class PosTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $producto->id, 'cantidad' => 2]],
+                'efectivo_recibido' => 2400,
             ])
             ->assertRedirect(route('pos.index'));
 
@@ -217,6 +218,7 @@ class PosTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $papa->id, 'cantidad' => 0.5]],
+                'efectivo_recibido' => 750,
             ])
             ->assertRedirect(route('pos.index'));
 
@@ -227,6 +229,64 @@ class PosTest extends TestCase
             'cantidad' => 0.5,
             'subtotal' => 750,
         ]);
+    }
+
+    public function test_kilogramo_rechaza_cantidades_con_mas_de_tres_decimales(): void
+    {
+        $papa = $this->crearVendible('Papa', 'KILOGRAMO', 1500);
+        $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosPos());
+        $this->abrirCaja($cajero);
+
+        $this->actingAs($cajero)
+            ->post('/pos/ventas', [
+                'medio_pago' => 'EFECTIVO',
+                'items' => [['producto_id' => $papa->id, 'cantidad' => '1.8501']],
+                'efectivo_recibido' => 3000,
+            ])
+            ->assertSessionHasErrors('items.0.cantidad');
+
+        $this->assertSame(0, Venta::count());
+    }
+
+    public function test_venta_en_efectivo_exige_efectivo_recibido_que_cubra_el_total(): void
+    {
+        $gaseosa = $this->crearVendible('Gaseosa', 'UNIDAD', 1200);
+        $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosPos());
+        $this->abrirCaja($cajero);
+
+        // Sin monto recibido: se rechaza.
+        $this->actingAs($cajero)
+            ->post('/pos/ventas', [
+                'medio_pago' => 'EFECTIVO',
+                'items' => [['producto_id' => $gaseosa->id, 'cantidad' => 2]],
+            ])
+            ->assertSessionHasErrors('efectivo_recibido');
+
+        // Recibido insuficiente: se rechaza.
+        $this->actingAs($cajero)
+            ->post('/pos/ventas', [
+                'medio_pago' => 'EFECTIVO',
+                'items' => [['producto_id' => $gaseosa->id, 'cantidad' => 2]],
+                'efectivo_recibido' => 1000,
+            ])
+            ->assertSessionHasErrors('efectivo_recibido');
+
+        $this->assertSame(0, Venta::count());
+
+        // Recibido suficiente: se registra y guarda recibido y vuelto.
+        $this->actingAs($cajero)
+            ->post('/pos/ventas', [
+                'medio_pago' => 'EFECTIVO',
+                'items' => [['producto_id' => $gaseosa->id, 'cantidad' => 2]],
+                'efectivo_recibido' => 3000,
+            ])
+            ->assertRedirect(route('pos.index'));
+
+        $venta = Venta::query()->where('usuario_id', $cajero->id)->first();
+
+        $this->assertSame(2400.0, (float) $venta->total);
+        $this->assertSame(3000.0, (float) $venta->efectivo_recibido);
+        $this->assertSame(600.0, (float) $venta->vuelto);
     }
 
     public function test_se_rechaza_cantidad_decimal_para_unidad_y_bolsa(): void
@@ -367,6 +427,7 @@ class PosTest extends TestCase
                         'subtotal' => 2,
                     ],
                 ],
+                'efectivo_recibido' => 2400,
             ])
             ->assertRedirect(route('pos.index'));
 
@@ -391,6 +452,7 @@ class PosTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $producto->id, 'cantidad' => 2]],
+                'efectivo_recibido' => 2600,
             ])
             ->assertRedirect(route('pos.index'));
 
@@ -413,6 +475,7 @@ class PosTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $producto->id, 'cantidad' => 2]],
+                'efectivo_recibido' => 5000,
             ])
             ->assertRedirect(route('pos.index'));
 

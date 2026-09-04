@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Caja extends Model
 {
     protected $fillable = [
+        'caja_fisica_id',
         'usuario_abre_id',
         'estado',
         'monto_inicial',
@@ -25,6 +26,7 @@ class Caja extends Model
         'efectivo_contado',
         'efectivo_esperado',
         'diferencia',
+        'observacion_cierre',
     ];
 
     protected function casts(): array
@@ -43,6 +45,11 @@ class Caja extends Model
     public function usuarioAbrio(): BelongsTo
     {
         return $this->belongsTo(Usuario::class, 'usuario_abre_id');
+    }
+
+    public function cajaFisica(): BelongsTo
+    {
+        return $this->belongsTo(CajaFisica::class, 'caja_fisica_id');
     }
 
     public function movimientos(): HasMany

@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Enums\EstadoCaja;
+use App\Enums\MedioPago;
 use App\Enums\TipoMovimientoCaja;
 use App\Models\Caja;
+use App\Models\CajaFisica;
 use App\Models\Categoria;
 use App\Models\MovimientoCaja;
 use App\Models\Permiso;
@@ -61,13 +63,18 @@ class CajaTest extends TestCase
     public function test_abrir_caja_crea_una_caja_abierta_y_redirige(): void
     {
         $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosCaja());
+        $cajaFisica = CajaFisica::factory()->create();
 
         $this->actingAs($cajero)
-            ->post('/caja/abrir', ['monto_inicial' => 10000])
+            ->post('/caja/abrir', [
+                'monto_inicial' => 10000,
+                'caja_fisica_id' => $cajaFisica->id,
+            ])
             ->assertRedirect(route('caja.index'));
 
         $this->assertDatabaseHas('cajas', [
             'usuario_abre_id' => $cajero->id,
+            'caja_fisica_id' => $cajaFisica->id,
             'estado' => EstadoCaja::ABIERTA->value,
             'monto_inicial' => 10000,
         ]);
@@ -93,11 +100,15 @@ class CajaTest extends TestCase
     public function test_no_puede_abrirse_una_segunda_caja_si_hay_una_abierta(): void
     {
         $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosCaja());
+        $cajaFisica = CajaFisica::factory()->create();
         $this->abrirCaja($cajero, 1000);
 
         $this->actingAs($cajero)
-            ->post('/caja/abrir', ['monto_inicial' => 2000])
-            ->assertSessionHasErrors('monto_inicial');
+            ->post('/caja/abrir', [
+                'monto_inicial' => 2000,
+                'caja_fisica_id' => $cajaFisica->id,
+            ])
+            ->assertSessionHasErrors('caja');
 
         $this->assertSame(1, Caja::count());
     }
@@ -147,6 +158,7 @@ class CajaTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $producto->id, 'cantidad' => 1]],
+                'efectivo_recibido' => 1200,
             ])
             ->assertSessionHasErrors('caja');
 
@@ -165,6 +177,7 @@ class CajaTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $producto->id, 'cantidad' => 2]],
+                'efectivo_recibido' => 2400,
             ])
             ->assertRedirect(route('pos.index'));
 
@@ -256,6 +269,51 @@ class CajaTest extends TestCase
         $this->assertSame(1, $resumen['cantidad_ventas']);
     }
 
+    public function test_el_efectivo_esperado_no_incluye_movimientos_manuales_por_transferencia_o_tarjeta(): void
+    {
+        $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosCaja());
+        $caja = $this->abrirCaja($cajero, 1000);
+
+        // Los registros históricos sin medio se tratan como efectivo físico.
+        $this->registrarManual($cajero, 'INGRESO', 500, 'cambio viejo');
+
+        app(CajaService::class)->registrarManual($caja, $cajero, TipoMovimientoCaja::INGRESO, 3000, 'Depósito', MedioPago::TRANSFERENCIA);
+        app(CajaService::class)->registrarManual($caja, $cajero, TipoMovimientoCaja::INGRESO, 1000, 'Venta tarjeta', MedioPago::TARJETA);
+        app(CajaService::class)->registrarManual($caja, $cajero, TipoMovimientoCaja::INGRESO, 2000, 'Cambio', MedioPago::EFECTIVO);
+        app(CajaService::class)->registrarManual($caja, $cajero, TipoMovimientoCaja::EGRESO, 700, 'Flete', MedioPago::EFECTIVO);
+
+        $resumen = app(CajaService::class)->resumen($caja);
+
+        // 1000 (inicial) + 500 (histórico, medio nulo) + 2000 - 700 = 2800
+        $this->assertSame(2800.0, $resumen['efectivo_esperado']);
+        $this->assertSame(6500.0, $resumen['ingresos']);
+        $this->assertSame(700.0, $resumen['egresos']);
+    }
+
+    public function test_el_resumen_expone_los_movimientos_manuales_del_dia(): void
+    {
+        $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosCaja());
+        $caja = $this->abrirCaja($cajero, 0);
+
+        app(CajaService::class)->registrarManual($caja, $cajero, TipoMovimientoCaja::INGRESO, 2000, 'Cambio', MedioPago::EFECTIVO);
+        app(CajaService::class)->registrarManual($caja, $cajero, TipoMovimientoCaja::EGRESO, 300, 'Bolsas', MedioPago::TRANSFERENCIA);
+
+        $resumen = app(CajaService::class)->resumen($caja);
+
+        $movimientos = $resumen['movimientos'];
+
+        $this->assertCount(2, $movimientos);
+        $this->assertSame('EGRESO', $movimientos[0]['tipo']);
+        $this->assertSame('TRANSFERENCIA', $movimientos[0]['medio_pago']);
+        $this->assertSame('Bolsas', $movimientos[0]['concepto']);
+        $this->assertSame(300.0, $movimientos[0]['monto']);
+        $this->assertSame('INGRESO', $movimientos[1]['tipo']);
+        $this->assertSame('EFECTIVO', $movimientos[1]['medio_pago']);
+        $this->assertSame(2000.0, $movimientos[1]['monto']);
+        $this->assertArrayHasKey('id', $movimientos[0]);
+        $this->assertArrayHasKey('tipo_etiqueta', $movimientos[0]);
+    }
+
     public function test_el_efectivo_esperado_no_incluye_ventas_por_transferencia(): void
     {
         $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosPosCaja());
@@ -306,7 +364,10 @@ class CajaTest extends TestCase
         $this->registrarManual($cajero, 'INGRESO', 500, 'cambio');
 
         $this->actingAs($cajero)
-            ->post('/caja/cerrar', ['efectivo_contado' => 11000])
+            ->post('/caja/cerrar', [
+                'efectivo_contado' => 11000,
+                'observacion' => 'Sobrante por cambio',
+            ])
             ->assertRedirect(route('caja.index'));
 
         $caja->refresh();
@@ -315,6 +376,7 @@ class CajaTest extends TestCase
         $this->assertSame(11000.0, (float) $caja->efectivo_contado);
         $this->assertSame(10500.0, (float) $caja->efectivo_esperado);
         $this->assertSame(500.0, (float) $caja->diferencia);
+        $this->assertSame('Sobrante por cambio', $caja->observacion_cierre);
         $this->assertNotNull($caja->cerrada_en);
     }
 
@@ -324,7 +386,10 @@ class CajaTest extends TestCase
         $caja = $this->abrirCaja($cajero, 10000);
 
         $this->actingAs($cajero)
-            ->post('/caja/cerrar', ['efectivo_contado' => 9500])
+            ->post('/caja/cerrar', [
+                'efectivo_contado' => 9500,
+                'observacion' => 'Faltante en el contado',
+            ])
             ->assertRedirect(route('caja.index'));
 
         $caja->refresh();
@@ -361,6 +426,7 @@ class CajaTest extends TestCase
             ->post('/pos/ventas', [
                 'medio_pago' => 'EFECTIVO',
                 'items' => [['producto_id' => $producto->id, 'cantidad' => 1]],
+                'efectivo_recibido' => 1200,
             ])
             ->assertSessionHasErrors('caja');
 
@@ -393,13 +459,15 @@ class CajaTest extends TestCase
         $this->assertSame(1000.0, (float) $caja->efectivo_contado);
     }
 
-    public function test_solo_puede_haber_una_caja_abierta_a_nivel_de_base(): void
+    public function test_solo_puede_haber_una_caja_abierta_por_caja_fisica_a_nivel_de_base(): void
     {
         $cajero = $this->crearUsuarioConRol(Rol::CAJERO, $this->permisosCaja());
-        $this->abrirCaja($cajero, 1000);
+        $cajaFisica = CajaFisica::factory()->create();
+
+        $this->abrirCajaDirecta($cajero, 1000, $cajaFisica->id);
 
         $this->expectException(QueryException::class);
-        $this->abrirCajaDirecta($cajero, 2000);
+        $this->abrirCajaDirecta($cajero, 2000, $cajaFisica->id);
     }
 
     // ------------------------------------------------------------------ Helpers
@@ -409,9 +477,10 @@ class CajaTest extends TestCase
         return app(CajaService::class)->abrir($cajero, $montoInicial);
     }
 
-    private function abrirCajaDirecta(Usuario $cajero, float $montoInicial): Caja
+    private function abrirCajaDirecta(Usuario $cajero, float $montoInicial, ?int $cajaFisicaId = null): Caja
     {
         return Caja::create([
+            'caja_fisica_id' => $cajaFisicaId,
             'usuario_abre_id' => $cajero->id,
             'estado' => EstadoCaja::ABIERTA,
             'monto_inicial' => $montoInicial,
@@ -432,11 +501,17 @@ class CajaTest extends TestCase
 
     private function vender(Usuario $cajero, Producto $producto, float $cantidad, string $medioPago): Venta
     {
+        $datos = [
+            'medio_pago' => $medioPago,
+            'items' => [['producto_id' => $producto->id, 'cantidad' => $cantidad]],
+        ];
+
+        if ($medioPago === 'EFECTIVO') {
+            $datos['efectivo_recibido'] = round((float) $producto->precioVigente?->monto * $cantidad, 2);
+        }
+
         $this->actingAs($cajero)
-            ->post('/pos/ventas', [
-                'medio_pago' => $medioPago,
-                'items' => [['producto_id' => $producto->id, 'cantidad' => $cantidad]],
-            ])
+            ->post('/pos/ventas', $datos)
             ->assertRedirect(route('pos.index'));
 
         return Venta::query()->where('usuario_id', $cajero->id)->latest('id')->first();

@@ -10,7 +10,10 @@ use Illuminate\Database\Seeder;
 class RolSeeder extends Seeder
 {
     /**
-     * Permisos del rol CAJERO: únicamente punto de venta.
+     * Permisos del rol CAJERO: punto de venta, caja y tickets.
+     *
+     * El cajero NO ve Categorías, Productos ni el historial de Ventas;
+     * esas secciones quedan reservadas al dueño (acceso por permisos).
      *
      * @return list<string>
      */
@@ -19,7 +22,6 @@ class RolSeeder extends Seeder
         return [
             Permisos::POS_USAR,
             Permisos::VENTAS_REALIZAR,
-            Permisos::VENTAS_VER,
             Permisos::TICKETS_IMPRIMIR,
             Permisos::CAJAS_USAR,
             Permisos::CAJAS_VER,

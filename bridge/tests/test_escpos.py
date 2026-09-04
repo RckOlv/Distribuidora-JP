@@ -81,6 +81,19 @@ class TestGenerarTicket(unittest.TestCase):
         # "Mi Verdulería" debe codificarse con á → 0xA0 (no UTF-8)
         self.assertIn(b"verduler", datos.lower())
 
+    def test_reimpresion_agrega_marca_visual_sin_alterar_datos(self):
+        texto = generar_ticket(self._snapshot(), es_reimpresion=True).decode("latin-1")
+        self.assertIn("REIMPRESION", texto.upper())
+        # La marca aparece antes de la cabecera del comercio.
+        self.assertLess(texto.upper().index("REIMPRESION"), texto.upper().index("VERDULER"))
+        # Los datos comerciales se mantienen intactos.
+        self.assertIn("Banana", texto)
+        self.assertIn("TOTAL", texto.upper())
+
+    def test_venta_normal_sin_marca_de_reimpresion(self):
+        texto = generar_ticket(self._snapshot()).decode("latin-1")
+        self.assertNotIn("REIMPRESION", texto.upper())
+
 
 if __name__ == "__main__":
     unittest.main()

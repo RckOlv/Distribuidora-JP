@@ -55,6 +55,8 @@ final class Permisos
     // Administración
     public const USUARIOS_GESTIONAR = 'usuarios.gestionar';
 
+    public const AUDITORIA_VER = 'auditoria.ver';
+
     public const REPORTES_VER = 'reportes.ver';
 
     public const CONFIGURACION_GESTIONAR = 'configuracion.gestionar';

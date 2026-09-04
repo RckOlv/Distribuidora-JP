@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\MedioPago;
 use App\Enums\TipoMovimientoCaja;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,7 @@ class MovimientoCaja extends Model
         'usuario_id',
         'tipo',
         'monto',
+        'medio_pago',
         'concepto',
     ];
 
@@ -23,6 +25,7 @@ class MovimientoCaja extends Model
     {
         return [
             'tipo' => TipoMovimientoCaja::class,
+            'medio_pago' => MedioPago::class,
             'monto' => 'decimal:2',
         ];
     }
