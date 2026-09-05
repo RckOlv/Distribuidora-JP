@@ -436,56 +436,154 @@ const valoresMedio = computed(() =>
                                         {{ caja.estado_etiqueta }}
                                     </span>
                                 </div>
-                                <dl
-                                    class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3"
+                                <div
+                                    class="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2"
                                 >
                                     <div>
-                                        <dt class="text-gray-500">
-                                            Inicial
-                                        </dt>
-                                        <dd class="font-medium text-gray-900">
-                                            {{ formatoMoneda(caja.monto_inicial) }}
-                                        </dd>
+                                        <p
+                                            class="text-xs font-semibold uppercase tracking-wide text-gray-400"
+                                        >
+                                            Ventas
+                                        </p>
+                                        <dl class="mt-2 space-y-1 text-sm">
+                                            <div
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Efectivo
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.ventas_efectivo) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Tarjeta
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.ventas_tarjeta) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Transferencia
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.ventas_transferencia) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                v-if="caja.otros > 0"
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Otros
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.otros) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                class="mt-2 flex items-center justify-between gap-4 border-t border-gray-200 pt-2"
+                                            >
+                                                <dt
+                                                    class="font-medium text-gray-700"
+                                                >
+                                                    Total vendido
+                                                </dt>
+                                                <dd
+                                                    class="font-bold text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.total_ventas) }}
+                                                </dd>
+                                            </div>
+                                        </dl>
                                     </div>
+
                                     <div>
-                                        <dt class="text-gray-500">
-                                            Ventas efectivo
-                                        </dt>
-                                        <dd class="font-medium text-gray-900">
-                                            {{ formatoMoneda(caja.ventas_efectivo) }}
-                                        </dd>
+                                        <p
+                                            class="text-xs font-semibold uppercase tracking-wide text-gray-400"
+                                        >
+                                            Efectivo en caja
+                                        </p>
+                                        <dl class="mt-2 space-y-1 text-sm">
+                                            <div
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Inicial
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.monto_inicial) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Ventas efectivo
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.ventas_efectivo) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Ingresos
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.ingresos) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                class="flex items-center justify-between gap-4"
+                                            >
+                                                <dt class="text-gray-500">
+                                                    Egresos
+                                                </dt>
+                                                <dd
+                                                    class="font-medium text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.egresos) }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                class="mt-2 flex items-center justify-between gap-4 border-t border-gray-200 pt-2"
+                                            >
+                                                <dt
+                                                    class="font-medium text-gray-700"
+                                                >
+                                                    Efectivo esperado
+                                                </dt>
+                                                <dd
+                                                    class="font-bold text-gray-900"
+                                                >
+                                                    {{ formatoMoneda(caja.efectivo_esperado) }}
+                                                </dd>
+                                            </div>
+                                        </dl>
                                     </div>
-                                    <div>
-                                        <dt class="text-gray-500">
-                                            Ingresos
-                                        </dt>
-                                        <dd class="font-medium text-gray-900">
-                                            {{ formatoMoneda(caja.ingresos) }}
-                                        </dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-gray-500">
-                                            Egresos
-                                        </dt>
-                                        <dd class="font-medium text-gray-900">
-                                            {{ formatoMoneda(caja.egresos) }}
-                                        </dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-gray-500">Ventas total</dt>
-                                        <dd class="font-medium text-gray-900">
-                                            {{ formatoMoneda(caja.total_ventas) }}
-                                        </dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-gray-500">
-                                            Efectivo esperado
-                                        </dt>
-                                        <dd class="font-semibold text-gray-900">
-                                            {{ formatoMoneda(caja.efectivo_esperado) }}
-                                        </dd>
-                                    </div>
-                                </dl>
+                                </div>
                             </div>
                         </div>
                         <div
@@ -493,10 +591,14 @@ const valoresMedio = computed(() =>
                             class="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-5 py-3 text-sm"
                         >
                             <span class="font-medium text-gray-700">
-                                Total del período ({{
-                                    resumen.cajas.agregado.cantidad_cajas
+                                Efectivo esperado del período ({{
+                                    resumen.cajas.agregado.cantidad_sesiones
                                 }}
-                                caja(s))
+                                {{
+                                    resumen.cajas.agregado.cantidad_sesiones === 1
+                                        ? 'sesión'
+                                        : 'sesiones'
+                                }})
                             </span>
                             <span class="font-bold text-gray-900">
                                 {{ formatoMoneda(resumen.cajas.agregado.efectivo_esperado) }}

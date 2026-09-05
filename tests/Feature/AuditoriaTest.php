@@ -187,6 +187,7 @@ class AuditoriaTest extends TestCase
             'nombre' => 'Papa blanca',
             'categoria_id' => $producto->categoria_id,
             'unidad_medida' => 'KILOGRAMO',
+            'costo' => 1200,
             'activo' => true,
         ])->assertRedirect();
 
@@ -269,6 +270,7 @@ class AuditoriaTest extends TestCase
             'categoria_id' => $categoria->id,
             'unidad_medida' => 'KILOGRAMO',
             'monto' => 1500,
+            'costo' => 600,
             'activo' => true,
         ])->assertRedirect();
 
@@ -289,6 +291,7 @@ class AuditoriaTest extends TestCase
             'nombre' => 'Papa andina',
             'categoria_id' => $producto->categoria_id,
             'unidad_medida' => 'KILOGRAMO',
+            'costo' => 600,
             'activo' => true,
         ])->assertRedirect();
 
@@ -566,6 +569,27 @@ class AuditoriaTest extends TestCase
         $this->assertSame(2000, $registro->datos_nuevos['total']);
     }
 
+    public function test_el_detalle_de_auditoria_muestra_el_nombre_del_usuario_en_los_datos(): void
+    {
+        $dueno = $this->crearUsuarioConRol(Rol::DUENO, []);
+        $producto = $this->crearVendible('Papa', 'KILOGRAMO', 1000);
+        $caja = $this->abrirCaja($dueno, 0);
+
+        $venta = app(VentaService::class)->registrar($dueno, 'EFECTIVO', [['producto_id' => $producto->id, 'cantidad' => 2]], 2000);
+        $registro = Auditoria::where('accion', AccionAuditoria::VENTA_REALIZADA->value)->first();
+
+        $this->assertNotNull($registro);
+
+        $this->actingAs($dueno)
+            ->get('/auditoria/'.$registro->id)
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('Auditoria/Show')
+                ->where('registro.datos_nuevos.usuario_id', $dueno->name)
+                ->where('registro.datos_nuevos.caja_id', $caja->id)
+                ->where('registro.datos_nuevos.venta_id', $venta->id));
+    }
+
     public function test_una_venta_que_hace_rollback_no_genera_auditoria(): void
     {
         $cajero = $this->crearUsuarioConRol(Rol::CAJERO, []);
@@ -723,6 +747,7 @@ class AuditoriaTest extends TestCase
             'nombre' => 'Papa blanca',
             'categoria_id' => $producto->categoria_id,
             'unidad_medida' => 'KILOGRAMO',
+            'costo' => 1200,
             'activo' => true,
         ])->assertRedirect();
 
@@ -768,6 +793,7 @@ class AuditoriaTest extends TestCase
             'categoria_id' => $producto->categoria_id,
             'unidad_medida' => 'KILOGRAMO',
             'monto' => 1500,
+            'costo' => 600,
             'activo' => true,
         ])->assertRedirect();
 

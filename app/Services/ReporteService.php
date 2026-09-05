@@ -145,12 +145,21 @@ class ReporteService
      */
     private function desglosePorMedio(Carbon $inicio, Carbon $fin)
     {
+        // El desglose real vive en pagos_venta (una fila por medio aplicado).
+        // Las ventas históricas sin pagos_venta caen a ventas.medio_pago con el
+        // total como monto. COUNT(DISTINCT ventas.id) evita contar una venta
+        // mixta más de una vez por fila de pago.
         return Venta::query()
-            ->where('estado_pago', EstadoPagoVenta::PAGADA->value)
-            ->where('created_at', '>=', $inicio)
-            ->where('created_at', '<', $fin)
-            ->selectRaw('medio_pago, COUNT(*) as cantidad, COALESCE(SUM(total), 0) as total')
-            ->groupBy('medio_pago')
+            ->leftJoin('pagos_venta as pv', 'pv.venta_id', '=', 'ventas.id')
+            ->where('ventas.estado_pago', EstadoPagoVenta::PAGADA->value)
+            ->where('ventas.created_at', '>=', $inicio)
+            ->where('ventas.created_at', '<', $fin)
+            ->selectRaw('
+                COALESCE(pv.medio_pago, ventas.medio_pago) as medio_pago,
+                COUNT(DISTINCT ventas.id) as cantidad,
+                COALESCE(SUM(COALESCE(pv.monto, ventas.total)), 0) as total
+            ')
+            ->groupByRaw('COALESCE(pv.medio_pago, ventas.medio_pago)')
             ->get();
     }
 
@@ -256,9 +265,13 @@ class ReporteService
     /**
      * Resumen de caja usando la fórmula ya existente (CajaService::resumen).
      *
-     * Una caja pertenece al día si tuvo ventas ese día (según la fecha real de
-     * la venta) o movimientos manuales (ingresos/egresos) creados ese día. Se
-     * devuelve cada caja y un agregado del día.
+     * En reportes, cada «caja» listada es en realidad una SESIÓN (una fila de la
+     * tabla `cajas`, es decir una apertura). Una caja física puede tener varias
+     * sesiones en un período. La sesión pertenece al período si tuvo ventas
+     * (según la fecha real de la venta) o movimientos manuales creados en el
+     * período. El agregado cuenta sesiones (cantidad_sesiones) y suma su
+     * efectivo esperado: no debe interpretarse como «cantidad de cajas físicas»
+     * ni como el efectivo físico actual de una caja en particular.
      *
      * @return array<string, mixed>
      */
@@ -283,7 +296,7 @@ class ReporteService
 
         $cajas = [];
         $agregado = [
-            'cantidad_cajas' => 0,
+            'cantidad_sesiones' => 0,
             'monto_inicial' => 0.0,
             'total_ventas' => 0.0,
             'cantidad_ventas' => 0,
@@ -313,12 +326,15 @@ class ReporteService
                 'total_ventas' => $resumen['total_ventas'],
                 'cantidad_ventas' => $resumen['cantidad_ventas'],
                 'ventas_efectivo' => $resumen['ventas_efectivo'],
+                'ventas_tarjeta' => $resumen['ventas_tarjeta'],
+                'ventas_transferencia' => $resumen['ventas_transferencia'],
+                'otros' => $resumen['otros'],
                 'ingresos' => $resumen['ingresos'],
                 'egresos' => $resumen['egresos'],
                 'efectivo_esperado' => $resumen['efectivo_esperado'],
             ];
 
-            $agregado['cantidad_cajas']++;
+            $agregado['cantidad_sesiones']++;
             $agregado['monto_inicial'] += $resumen['monto_inicial'];
             $agregado['total_ventas'] += $resumen['total_ventas'];
             $agregado['cantidad_ventas'] += $resumen['cantidad_ventas'];

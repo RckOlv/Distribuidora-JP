@@ -140,7 +140,16 @@
         </table>
     @endif
 
-    @if (! empty($ticket['medio_pago']))
+    @if (! empty($ticket['pagos']) && is_array($ticket['pagos']))
+        <table class="items">
+            @foreach ($ticket['pagos'] as $pago)
+                <tr>
+                    <td>Pago: {{ $pago['etiqueta'] ?? $pago['medio_pago'] ?? '' }}</td>
+                    <td class="precio">{{ $moneda($pago['monto'] ?? 0) }}</td>
+                </tr>
+            @endforeach
+        </table>
+    @elseif (! empty($ticket['medio_pago']))
         <div class="pago">Pago: {{ $ticket['medio_pago'] }}</div>
     @endif
 

@@ -10,8 +10,20 @@ import {
 } from '@/helpers/carrito';
 import { formatoMoneda } from '@/helpers/formato';
 import {
+    MAX_LONGITUD_MONTO,
+    normalizarMonto,
+    sanitizarMonto,
+} from '@/helpers/montos';
+import {
+    resolverPagoEfectivo,
+    type FilaPago,
+    type PagoEnvio,
+    type ResolucionPagos,
+} from '@/helpers/pagos';
+import {
     confirmarAccion,
     notificarError,
+    notificarExito,
 } from '@/helpers/notificaciones';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import type {
@@ -39,7 +51,107 @@ const categoriaSeleccionada = ref<number | null>(null);
 const busqueda = ref('');
 const aviso = ref<string | null>(null);
 const inputScan = ref<HTMLInputElement | null>(null);
-const medioPago = ref<MedioPago>(props.medios_pago[0]?.valor ?? 'EFECTIVO');
+
+const pagos = ref<FilaPago[]>([
+    { medio: props.medios_pago[0]?.valor ?? 'EFECTIVO', monto: '' },
+]);
+
+const numeroMonto = normalizarMonto;
+
+const actualizarMonto = (fila: FilaPago, evento: Event): void => {
+    const input = evento.target as HTMLInputElement;
+    const limpio = sanitizarMonto(input.value);
+
+    if (limpio !== input.value) {
+        input.value = limpio;
+    }
+
+    fila.monto = limpio;
+};
+
+const mediosUsados = computed(
+    () => new Set(pagos.value.map((pago) => pago.medio)),
+);
+
+const puedeAgregarMedio = computed(
+    () => mediosUsados.value.size < props.medios_pago.length,
+);
+
+const agregarMedio = (): void => {
+    const siguientes = props.medios_pago.filter(
+        (medio) => !mediosUsados.value.has(medio.valor),
+    );
+
+    if (siguientes.length === 0) {
+        return;
+    }
+
+    pagos.value.push({ medio: siguientes[0].valor, monto: '' });
+};
+
+const cambiarMedio = (fila: FilaPago, valor: MedioPago): void => {
+    const duplicada = pagos.value.find(
+        (otra) => otra !== fila && otra.medio === valor,
+    );
+
+    if (duplicada) {
+        const montoFila = numeroMonto(fila.monto);
+
+        if (montoFila !== null) {
+            const montoExistente = numeroMonto(duplicada.monto) ?? 0;
+            duplicada.monto = (
+                Math.round((montoExistente + montoFila) * 100) / 100
+            ).toString();
+        }
+
+        pagos.value = pagos.value.filter((otra) => otra !== fila);
+
+        return;
+    }
+
+    fila.medio = valor;
+};
+
+const quitarMedio = (fila: FilaPago): void => {
+    if (pagos.value.length <= 1) {
+        return;
+    }
+
+    pagos.value = pagos.value.filter((otra) => otra !== fila);
+};
+
+// Una venta "100% en efectivo" (un solo medio, Efectivo) pide cuánto efectivo
+// entrega el cliente y calcula el vuelto en vivo. En ventas mixtas o con
+// medios electrónicos cada medio cubre su parte exacta del total. Toda la
+// resolución (vuelto, faltante, excedente, habilitación y payload) vive en
+// el helper `resolverPagoEfectivo`, testeado por separado.
+const resolucionPagos = computed<ResolucionPagos>(() =>
+    resolverPagoEfectivo(pagos.value, total.value),
+);
+
+const puedeConfirmar = computed(
+    () =>
+        !form.processing &&
+        carrito.value.length > 0 &&
+        erroresClientes.value === null &&
+        resolucionPagos.value.puedeFinalizar,
+);
+
+const esPagoPendiente = computed(() =>
+    pagos.value.some(
+        (pago) => pago.medio === 'TRANSFERENCIA' || pago.medio === 'TARJETA',
+    ),
+);
+
+const desglosePagos = computed(() => {
+    const etiquetaPorValor = Object.fromEntries(
+        props.medios_pago.map((medio) => [medio.valor, medio.etiqueta]),
+    );
+
+    return pagos.value.map(
+        (pago) => etiquetaPorValor[pago.medio] ?? pago.medio,
+    );
+});
 
 const pesoModalAbierto = ref(false);
 const productoPeso = ref<ProductoVenta | null>(null);
@@ -48,58 +160,12 @@ const errorPeso = ref<string | null>(null);
 const inputPeso = ref<HTMLInputElement | null>(null);
 
 const form = useForm<{
-    medio_pago: MedioPago;
+    pagos: { medio_pago: MedioPago; monto: number }[];
     items: { producto_id: number; cantidad: number }[];
     efectivo_recibido?: number;
 }>({
-    medio_pago: 'EFECTIVO',
+    pagos: [],
     items: [],
-});
-
-const esEfectivo = computed(() => medioPago.value === 'EFECTIVO');
-
-const efectivoRecibido = ref('');
-
-const efectivoRecibidoNum = computed<number | null>(() => {
-    const texto = efectivoRecibido.value.trim().replace(',', '.');
-
-    if (texto === '') {
-        return null;
-    }
-
-    const numero = Number(texto);
-
-    return Number.isFinite(numero) && numero > 0 ? numero : null;
-});
-
-const vuelto = computed<number | null>(() => {
-    if (
-        !esEfectivo.value ||
-        efectivoRecibidoNum.value === null ||
-        total.value <= 0
-    ) {
-        return null;
-    }
-
-    const diferencia = efectivoRecibidoNum.value - total.value;
-
-    return diferencia >= 0 ? diferencia : null;
-});
-
-const errorEfectivoRecibido = computed<string | null>(() => {
-    if (!esEfectivo.value || total.value <= 0) {
-        return null;
-    }
-
-    if (efectivoRecibidoNum.value === null) {
-        return 'Indicá cuánto efectivo recibís para cobrar.';
-    }
-
-    if (efectivoRecibidoNum.value < total.value) {
-        return 'El efectivo recibido no alcanza para cubrir el total.';
-    }
-
-    return null;
 });
 
 const paso = (producto: ProductoVenta): number =>
@@ -328,9 +394,6 @@ const vaciarCarrito = (): void => {
     aviso.value = null;
 };
 
-const esPagoPendiente = (medio: MedioPago): boolean =>
-    medio === 'TRANSFERENCIA' || medio === 'TARJETA';
-
 const confirmarVenta = async (): Promise<void> => {
     if (erroresClientes.value) {
         aviso.value = erroresClientes.value;
@@ -338,22 +401,34 @@ const confirmarVenta = async (): Promise<void> => {
         return;
     }
 
-    if (esEfectivo.value && errorEfectivoRecibido.value) {
-        aviso.value = errorEfectivoRecibido.value;
+    if (pagos.value.some((pago) => pago.monto.trim() === '')) {
+        aviso.value = 'Completá los montos de pago.';
 
         return;
     }
 
-    const destino = esPagoPendiente(medioPago.value)
-        ? route('pos.ventas.pendiente')
-        : route('pos.ventas.store');
+    if (resolucionPagos.value.error) {
+        aviso.value = resolucionPagos.value.error;
 
-    if (esPagoPendiente(medioPago.value)) {
+        return;
+    }
+
+    if (!resolucionPagos.value.puedeFinalizar) {
+        aviso.value = resolucionPagos.value.esSoloEfectivo
+            ? `El efectivo entregado es menor al total: faltan ${formatoMoneda(
+                  resolucionPagos.value.faltante,
+              )}.`
+            : 'Los pagos deben cubrir exactamente el total de la venta.';
+
+        return;
+    }
+
+    if (esPagoPendiente.value) {
         const confirmado = await confirmarAccion({
             titulo: 'Venta pendiente de pago',
             texto: `Se registra la venta como PENDIENTE hasta confirmar el pago. Total: ${formatoMoneda(
                 total.value,
-            )}.`,
+            )}. Pagos: ${desglosePagos.value.join(' + ')}.`,
             textoConfirmar: 'Registrar pendiente',
             icono: 'info',
         });
@@ -361,26 +436,48 @@ const confirmarVenta = async (): Promise<void> => {
         if (!confirmado) {
             return;
         }
+
+        enviarVenta();
+
+        return;
     }
+
+    // Venta definitiva 100% en efectivo: el vuelto se calculó en vivo a partir
+    // del efectivo recibido; se envía ese recibido junto con el total.
+    if (resolucionPagos.value.esSoloEfectivo) {
+        enviarVenta(resolucionPagos.value.efectivoRecibidoEnviar as number);
+
+        return;
+    }
+
+    enviarVenta();
+};
+
+const enviarVenta = (efectivoRecibido?: number): void => {
+    const destino = esPagoPendiente.value
+        ? route('pos.ventas.pendiente')
+        : route('pos.ventas.store');
 
     form.clearErrors();
     form.transform(() => ({
-        medio_pago: medioPago.value,
+        pagos: resolucionPagos.value.pagosEnviar,
         items: carrito.value.map((item) => ({
             producto_id: item.producto.id,
             cantidad: item.cantidad,
         })),
-        ...(esEfectivo.value
-            ? {
-                  efectivo_recibido:
-                      efectivoRecibidoNum.value as number,
-              }
+        ...(efectivoRecibido !== undefined
+            ? { efectivo_recibido: efectivoRecibido }
             : {}),
     })).post(destino, {
         preserveScroll: true,
         onSuccess: () => {
             carrito.value = [];
-            efectivoRecibido.value = '';
+            pagos.value = [
+                {
+                    medio: props.medios_pago[0]?.valor ?? 'EFECTIVO',
+                    monto: '',
+                },
+            ];
             aviso.value = null;
             enfocarScanner();
         },
@@ -399,7 +496,7 @@ const confirmarPagoPendiente = async (venta: VentaPendiente): Promise<void> => {
         titulo: 'Confirmar pago',
         texto: `¿Confirmás el pago de la venta N° ${venta.numero} por ${formatoMoneda(
             venta.total,
-        )} (${venta.medio_pago_etiqueta})?`,
+        )} (${venta.pagos.map((pago) => pago.etiqueta).join(' + ')})?`,
         textoConfirmar: 'Sí, confirmar pago',
         icono: 'question',
     });
@@ -411,6 +508,9 @@ const confirmarPagoPendiente = async (venta: VentaPendiente): Promise<void> => {
     router.post(route('pos.ventas.confirmar', venta.id), undefined, {
         preserveScroll: true,
         preserveState: false,
+        onSuccess: () => {
+            notificarExito('Venta confirmada correctamente.');
+        },
         onError: (errores) => {
             const mensaje = Object.values(errores)[0];
             if (mensaje) {
@@ -522,7 +622,11 @@ const cancelarPendiente = async (venta: VentaPendiente): Promise<void> => {
                                     N° {{ pendiente.numero }}
                                 </p>
                                 <span class="text-xs text-gray-500">
-                                    {{ pendiente.medio_pago_etiqueta }}
+                                    {{
+                                        pendiente.pagos
+                                            .map((pago) => pago.etiqueta)
+                                            .join(' + ')
+                                    }}
                                 </span>
                             </div>
                             <p class="mt-1 text-lg font-bold text-gray-900">
@@ -623,7 +727,7 @@ const cancelarPendiente = async (venta: VentaPendiente): Promise<void> => {
                                     v-if="producto.imagen_url"
                                     :src="producto.imagen_url"
                                     :alt="producto.nombre"
-                                    class="h-full w-full object-cover"
+                                    class="h-full w-full object-contain"
                                 />
                                 <svg
                                     v-else
@@ -794,84 +898,197 @@ const cancelarPendiente = async (venta: VentaPendiente): Promise<void> => {
                             </p>
                         </div>
 
-                        <p class="mt-3 text-sm font-medium text-gray-700">
-                            Medio de pago
-                        </p>
-                        <div class="mt-2 grid grid-cols-3 gap-2">
-                            <button
-                                v-for="medio in medios_pago"
-                                :key="medio.valor"
-                                type="button"
-                                @click="medioPago = medio.valor"
-                                class="rounded-md px-2 py-2 text-sm font-medium transition"
-                                :class="
-                                    medioPago === medio.valor
-                                        ? 'bg-green-600 text-white'
-                                        : 'bg-white text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-50'
-                                "
+                        <div class="mt-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-700">
+                                        Pagos
+                                    </p>
+                                    <p class="mt-0.5 text-xs text-gray-500">
+                                        {{
+                                            resolucionPagos.esSoloEfectivo
+                                                ? 'Dinero que entrega el cliente; el vuelto se calcula automáticamente.'
+                                                : 'Parte del total que se paga con cada medio.'
+                                        }}
+                                    </p>
+                                </div>
+                                <button
+                                    v-if="puedeAgregarMedio"
+                                    type="button"
+                                    @click="agregarMedio"
+                                    class="shrink-0 text-sm font-medium text-green-600 hover:text-green-800"
+                                >
+                                    + Agregar medio de pago
+                                </button>
+                            </div>
+
+                            <div class="mt-2 space-y-2">
+                                <div
+                                    v-for="(fila, indice) in pagos"
+                                    :key="indice"
+                                    class="flex items-center gap-2 rounded-md bg-gray-50 px-2 py-1.5"
+                                >
+                                    <select
+                                        :value="fila.medio"
+                                        @change="
+                                            cambiarMedio(
+                                                fila,
+                                                ($event.target as HTMLSelectElement)
+                                                    .value as MedioPago,
+                                            )
+                                        "
+                                        class="rounded-md border-gray-300 text-sm shadow-sm focus:border-green-500 focus:ring-green-500"
+                                    >
+                                        <option
+                                            v-for="medio in medios_pago"
+                                            :key="medio.valor"
+                                            :value="medio.valor"
+                                        >
+                                            {{ medio.etiqueta }}
+                                        </option>
+                                    </select>
+                                    <div
+                                        class="flex flex-1 items-center gap-1"
+                                    >
+                                        <span
+                                            class="text-sm text-gray-500"
+                                        >
+                                            $
+                                        </span>
+                                        <input
+                                            :value="fila.monto"
+                                            type="text"
+                                            inputmode="decimal"
+                                            autocomplete="off"
+                                            :maxlength="MAX_LONGITUD_MONTO"
+                                            placeholder="0,00"
+                                            @input="actualizarMonto(fila, $event)"
+                                            class="w-full min-w-0 rounded-md border-gray-300 text-lg shadow-sm focus:border-green-500 focus:ring-green-500"
+                                        />
+                                    </div>
+                                    <button
+                                        v-if="pagos.length > 1"
+                                        type="button"
+                                        @click="quitarMedio(fila)"
+                                        class="shrink-0 text-gray-400 hover:text-red-600"
+                                        aria-label="Quitar medio de pago"
+                                    >
+                                        <svg
+                                            class="h-5 w-5"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                d="M6 18L18 6M6 6l12 12"
+                                            />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="mt-3 space-y-1">
+                                <div
+                                    class="flex items-center justify-between text-sm"
+                                >
+                                    <span class="text-gray-500">Pagado</span>
+                                    <span
+                                        class="font-semibold text-gray-900"
+                                    >
+                                        {{
+                                            formatoMoneda(
+                                                resolucionPagos.totalPagado,
+                                            )
+                                        }}
+                                    </span>
+                                </div>
+                                <div
+                                    v-if="resolucionPagos.faltante > 0"
+                                    class="flex items-center justify-between text-sm"
+                                >
+                                    <span class="text-amber-600">Falta</span>
+                                    <span
+                                        class="font-semibold text-amber-600"
+                                    >
+                                        {{
+                                            formatoMoneda(
+                                                resolucionPagos.faltante,
+                                            )
+                                        }}
+                                    </span>
+                                </div>
+                                <div
+                                    v-if="resolucionPagos.vuelto !== null"
+                                    class="flex items-center justify-between rounded-md bg-green-50 px-3 py-2 text-sm"
+                                >
+                                    <span
+                                        class="font-medium text-green-800"
+                                    >
+                                        Vuelto
+                                    </span>
+                                    <span
+                                        class="text-xl font-bold text-green-800"
+                                    >
+                                        {{
+                                            formatoMoneda(
+                                                resolucionPagos.vuelto,
+                                            )
+                                        }}
+                                    </span>
+                                </div>
+                                <div
+                                    v-if="resolucionPagos.excedente > 0"
+                                    class="flex items-center justify-between text-sm"
+                                >
+                                    <span class="text-red-600">
+                                        Excede el total
+                                    </span>
+                                    <span
+                                        class="font-semibold text-red-600"
+                                    >
+                                        {{
+                                            formatoMoneda(
+                                                resolucionPagos.excedente,
+                                            )
+                                        }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <p
+                                v-if="resolucionPagos.error"
+                                class="mt-2 text-sm text-red-600"
                             >
-                                {{ medio.etiqueta }}
+                                {{ resolucionPagos.error }}
+                            </p>
+
+                            <p
+                                v-if="mensajeError"
+                                class="mt-2 text-sm text-red-600"
+                            >
+                                {{ mensajeError }}
+                            </p>
+
+                            <button
+                                type="button"
+                                @click="confirmarVenta"
+                                :disabled="!puedeConfirmar"
+                                class="mt-3 w-full rounded-md bg-green-600 px-4 py-3 text-lg font-semibold text-white shadow-sm transition hover:bg-green-700 disabled:opacity-50"
+                            >
+                                {{
+                                    form.processing
+                                        ? 'Confirmando…'
+                                        : 'Confirmar venta'
+                                }}
                             </button>
                         </div>
-
-                        <div v-if="esEfectivo && carrito.length > 0" class="mt-3">
-                            <label
-                                for="efectivo-recibido"
-                                class="text-sm font-medium text-gray-700"
-                            >
-                                Efectivo recibido
-                            </label>
-                            <input
-                                id="efectivo-recibido"
-                                v-model="efectivoRecibido"
-                                type="text"
-                                inputmode="decimal"
-                                autocomplete="off"
-                                placeholder="Monto que te da el cliente (ej. 1000)"
-                                class="mt-1 block w-full rounded-md border-gray-300 text-lg shadow-sm focus:border-green-500 focus:ring-green-500"
-                            />
-                            <p
-                                v-if="errorEfectivoRecibido"
-                                class="mt-1 text-sm text-red-600"
-                            >
-                                {{ errorEfectivoRecibido }}
-                            </p>
-                            <div
-                                v-if="vuelto !== null"
-                                class="mt-2 flex items-center justify-between rounded-md bg-green-50 px-3 py-2"
-                            >
-                                <span class="text-sm font-medium text-green-800">
-                                    Vuelto
-                                </span>
-                                <span class="text-xl font-bold text-green-800">
-                                    {{ formatoMoneda(vuelto) }}
-                                </span>
-                            </div>
-                        </div>
-
-                        <p
-                            v-if="mensajeError"
-                            class="mt-2 text-sm text-red-600"
-                        >
-                            {{ mensajeError }}
-                        </p>
-
-                        <button
-                            type="button"
-                            @click="confirmarVenta"
-                            :disabled="form.processing"
-                            class="mt-3 w-full rounded-md bg-green-600 px-4 py-3 text-lg font-semibold text-white shadow-sm transition hover:bg-green-700 disabled:opacity-50"
-                        >
-                            {{
-                                form.processing
-                                    ? 'Confirmando…'
-                                    : 'Confirmar venta'
-                            }}
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
+    </div>
 
         <Modal
             :show="pesoModalAbierto"

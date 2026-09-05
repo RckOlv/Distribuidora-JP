@@ -46,8 +46,8 @@ class ProductoRequest extends FormRequest
         $esCreacion = $producto === null;
 
         // En la creación, el código de barras, el precio de venta y el costo
-        // son obligatorios. Al editar se mantienen opcionales para no romper
-        // productos históricos creados sin esos datos.
+        // son obligatorios. Al editar, el costo también es obligatorio; solo
+        // código y monto quedan opcionales para permitir ediciones parciales.
         $requeridoSiEsCreacion = $esCreacion ? 'required' : 'nullable';
 
         return [
@@ -62,7 +62,7 @@ class ProductoRequest extends FormRequest
             ],
             'descripcion' => ['nullable', 'string', 'max:500'],
             'monto' => [$requeridoSiEsCreacion, 'numeric', 'min:0.01', 'max:9999999999'],
-            'costo' => [$requeridoSiEsCreacion, 'numeric', 'min:0.01', 'max:9999999999'],
+            'costo' => ['required', 'numeric', 'min:0.01', 'max:9999999999'],
             'imagen' => ['nullable', 'image', 'max:5120'],
             'quitar_imagen' => ['nullable', 'boolean'],
         ];

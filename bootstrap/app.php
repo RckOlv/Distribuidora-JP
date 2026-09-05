@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Middleware\AgregarContentLength;
 use App\Http\Middleware\AutenticarDispositivoImpresion;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\TrustProxies;
 use App\Http\Middleware\VerificarPermiso;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -16,6 +18,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Detrás de un túnel/proxy (p. ej. Dev Tunnels) se confían los headers
+        // X-Forwarded-*; el middleware decide en runtime según el entorno.
+        $middleware->replace(
+            \Illuminate\Http\Middleware\TrustProxies::class,
+            TrustProxies::class,
+        );
+
+        // Workaround Dev Tunnels: Content-Length explícito para el HTML.
+        $middleware->prepend(AgregarContentLength::class);
+
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,

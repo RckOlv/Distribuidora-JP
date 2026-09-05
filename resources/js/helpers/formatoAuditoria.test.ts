@@ -4,6 +4,7 @@ import {
     camposDe,
     etiquetaCampo,
     formatearValor,
+    totalPagos,
     valorEnumLegible,
 } from './formatoAuditoria';
 
@@ -109,6 +110,92 @@ describe('formatearValor', () => {
         expect(formatearValor('propiedad_extra', 'algo').texto).toBe('algo');
         expect(formatearValor('numero_arbitrario', 42).texto).toBe('42');
     });
+
+    it('detecta un desglose de múltiples pagos y calcula su total', () => {
+        const valor = formatearValor('pagos', [
+            {
+                monto: 2000,
+                etiqueta: 'Efectivo',
+                medio_pago: 'EFECTIVO',
+            },
+            {
+                monto: 1400,
+                etiqueta: 'Transferencia',
+                medio_pago: 'TRANSFERENCIA',
+            },
+        ]);
+
+        expect(valor.tipo).toBe('pagos');
+        expect(valor.pagos).toEqual([
+            { etiqueta: 'Efectivo', monto: 2000 },
+            { etiqueta: 'Transferencia', monto: 1400 },
+        ]);
+        expect(totalPagos(valor.pagos ?? [])).toBe(3400);
+        expect(valor.texto).toContain('3.400,00');
+        expect(valor.texto).not.toContain('[');
+        expect(valor.texto).not.toContain('{');
+        expect(valor.texto).not.toContain('"');
+    });
+
+    it('detecta un único pago y calcula su total', () => {
+        const valor = formatearValor('pagos', [
+            { monto: 1500, etiqueta: 'Transferencia', medio_pago: 'TRANSFERENCIA' },
+        ]);
+
+        expect(valor.tipo).toBe('pagos');
+        expect(valor.pagos).toEqual([
+            { etiqueta: 'Transferencia', monto: 1500 },
+        ]);
+        expect(totalPagos(valor.pagos ?? [])).toBe(1500);
+        expect(valor.texto).toContain('1.500,00');
+    });
+
+    it('usa el medio_pago como etiqueta cuando falta el campo etiqueta', () => {
+        const valor = formatearValor('pagos', [
+            { monto: 1500, medio_pago: 'TARJETA' },
+        ]);
+
+        expect(valor.tipo).toBe('pagos');
+        expect(valor.pagos).toEqual([{ etiqueta: 'Tarjeta', monto: 1500 }]);
+    });
+
+    it('no trata un array de objetos sin montos como desglose de pagos', () => {
+        const valor = formatearValor('pagos', [
+            { nombre: 'Banana' },
+            { nombre: 'Manzana' },
+        ]);
+
+        expect(valor.tipo).toBe('texto');
+        expect(valor.texto).toContain('Banana');
+    });
+
+    it('renderiza un array vacío como "Sin valor"', () => {
+        expect(formatearValor('pagos', [])).toMatchObject({
+            texto: 'Sin valor',
+            tipo: 'nulo',
+        });
+    });
+
+    it('renderiza arrays de escalares sin corchetes ni comillas', () => {
+        const valor = formatearValor('numeros', [1, 2, 3]);
+
+        expect(valor.texto).toContain('1');
+        expect(valor.texto).not.toContain('[');
+        expect(valor.texto).not.toContain(']');
+        expect(valor.texto).not.toContain('"');
+    });
+
+    it('renderiza objetos planos como pares clave: valor', () => {
+        const valor = formatearValor('configuracion', {
+            nombre: 'Banana',
+            activo: true,
+        });
+
+        expect(valor.texto).toContain('Nombre: Banana');
+        expect(valor.texto).toContain('Activo: Sí');
+        expect(valor.texto).not.toContain('{');
+        expect(valor.texto).not.toContain('"');
+    });
 });
 
 describe('camposDe', () => {
@@ -191,5 +278,26 @@ describe('cambiosDe', () => {
         expect(porClave.precio.nuevo.texto).toContain('2.500,00');
         expect(porClave.activo.anterior.texto).toBe('Sin valor');
         expect(porClave.activo.nuevo.texto).toBe('Sí');
+    });
+
+    it('muestra el desglose de pagos como "Sin valor" → estructura de pagos', () => {
+        const cambios = cambiosDe(null, {
+            pagos: [
+                { monto: 2000, etiqueta: 'Efectivo', medio_pago: 'EFECTIVO' },
+                { monto: 1400, etiqueta: 'Transferencia', medio_pago: 'TRANSFERENCIA' },
+            ],
+        });
+
+        expect(cambios).toHaveLength(1);
+        expect(cambios[0].etiqueta).toBe('Pagos');
+        expect(cambios[0].anterior.texto).toBe('Sin valor');
+        expect(cambios[0].anterior.tipo).toBe('nulo');
+        expect(cambios[0].nuevo.tipo).toBe('pagos');
+        expect(cambios[0].nuevo.pagos).toEqual([
+            { etiqueta: 'Efectivo', monto: 2000 },
+            { etiqueta: 'Transferencia', monto: 1400 },
+        ]);
+        expect(totalPagos(cambios[0].nuevo.pagos ?? [])).toBe(3400);
+        expect(cambios[0].nuevo.texto).toContain('3.400,00');
     });
 });

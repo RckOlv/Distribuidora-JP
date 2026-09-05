@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TarjetaPagos from '@/Components/TarjetaPagos.vue';
 import type { ValorAuditoria } from '@/helpers/formatoAuditoria';
 
 defineProps<{
@@ -7,8 +8,13 @@ defineProps<{
 </script>
 
 <template>
+    <TarjetaPagos
+        v-if="valor.tipo === 'pagos'"
+        :pagos="valor.pagos ?? []"
+    />
+
     <span
-        v-if="valor.tipo === 'booleano'"
+        v-else-if="valor.tipo === 'booleano'"
         class="inline-flex items-center gap-1.5"
     >
         <span

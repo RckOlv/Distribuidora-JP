@@ -7,12 +7,19 @@ export type TipoValorAuditoria =
     | 'fecha'
     | 'booleano'
     | 'nulo'
-    | 'enumerado';
+    | 'enumerado'
+    | 'pagos';
+
+export interface PagoAuditoria {
+    etiqueta: string;
+    monto: number;
+}
 
 export interface ValorAuditoria {
     texto: string;
     tipo: TipoValorAuditoria;
     booleano: boolean | null;
+    pagos?: PagoAuditoria[];
 }
 
 export interface CampoAuditoria {
@@ -70,6 +77,7 @@ const ETIQUETAS: Record<string, string> = {
     usuario_id: 'Usuario',
     numero: 'Número',
     medio_pago: 'Medio de pago',
+    pagos: 'Pagos',
     total: 'Total',
 };
 
@@ -123,6 +131,108 @@ const formatoId = (clave: string, valor: number): string =>
 
 export const esNulo = (valor: unknown): boolean =>
     valor === null || valor === undefined || valor === '';
+
+/** Texto simple para un valor escalar dentro de una estructura. */
+const textoEscalar = (valor: unknown): string => {
+    if (valor === null || valor === undefined) {
+        return '—';
+    }
+
+    if (typeof valor === 'boolean') {
+        return valor ? 'Sí' : 'No';
+    }
+
+    if (typeof valor === 'number') {
+        return valor.toLocaleString('es-AR');
+    }
+
+    if (typeof valor === 'string') {
+        return valor;
+    }
+
+    return JSON.stringify(valor);
+};
+
+const esMontoNumerico = (valor: unknown): valor is number | string =>
+    (typeof valor === 'number' && Number.isFinite(valor)) ||
+    (typeof valor === 'string' && /^-?\d+(\.\d+)?$/.test(valor));
+
+const etiquetaDePago = (fila: Record<string, unknown>): string | null => {
+    if (typeof fila.etiqueta === 'string' && fila.etiqueta !== '') {
+        return fila.etiqueta;
+    }
+
+    if (typeof fila.medio_pago === 'string') {
+        return valorEnumLegible(fila.medio_pago) ?? fila.medio_pago;
+    }
+
+    return null;
+};
+
+const esItemPago = (item: unknown): item is Record<string, unknown> => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+        return false;
+    }
+
+    const fila = item as Record<string, unknown>;
+
+    const tieneNombre =
+        (typeof fila.etiqueta === 'string' && fila.etiqueta !== '') ||
+        (typeof fila.medio_pago === 'string' && fila.medio_pago !== '');
+
+    return tieneNombre && esMontoNumerico(fila.monto);
+};
+
+/** Un array de objetos con etiqueta/medio_pago + monto es un desglose de pagos. */
+const esListaPagos = (valor: unknown): valor is unknown[] =>
+    Array.isArray(valor) && valor.length > 0 && valor.every(esItemPago);
+
+const pagosDesde = (valor: unknown[]): PagoAuditoria[] =>
+    valor.map((item) => {
+        const fila = item as Record<string, unknown>;
+        const etiqueta =
+            typeof fila.etiqueta === 'string' && fila.etiqueta !== ''
+                ? fila.etiqueta
+                : etiquetaDePago(fila) ?? 'Pago';
+
+        return { etiqueta, monto: Number(fila.monto) };
+    });
+
+export const totalPagos = (pagos: PagoAuditoria[]): number =>
+    pagos.reduce((acumulado, pago) => acumulado + pago.monto, 0);
+
+/** Texto de un valor anidado reutilizando las reglas de formatearValor. */
+const textoDeValor = (clave: string, valor: unknown): string => {
+    const formato = formatearValor(clave, valor);
+
+    return formato.tipo === 'nulo' ? '—' : formato.texto;
+};
+
+/** Línea legible para un elemento de una lista estructurada (p. ej. un pago). */
+const lineaDeElemento = (elemento: unknown): string => {
+    if (
+        elemento === null ||
+        typeof elemento !== 'object' ||
+        Array.isArray(elemento)
+    ) {
+        return textoEscalar(elemento);
+    }
+
+    const fila = elemento as Record<string, unknown>;
+
+    // Desglose tipo pago: "Efectivo: $2.000,00".
+    if (esMontoNumerico(fila.monto)) {
+        const etiqueta = etiquetaDePago(fila);
+
+        if (etiqueta !== null) {
+            return `${etiqueta}: ${formatoMoneda(fila.monto)}`;
+        }
+    }
+
+    return Object.entries(fila)
+        .map(([clave, valor]) => `${etiquetaCampo(clave)}: ${textoDeValor(clave, valor)}`)
+        .join(' — ');
+};
 
 export const formatearValor = (clave: string, valor: unknown): ValorAuditoria => {
     if (esNulo(valor)) {
@@ -183,7 +293,46 @@ export const formatearValor = (clave: string, valor: unknown): ValorAuditoria =>
         return { texto: valor, tipo: 'texto', booleano: null };
     }
 
-    return { texto: JSON.stringify(valor, null, 2), tipo: 'texto', booleano: null };
+    if (Array.isArray(valor)) {
+        if (valor.length === 0) {
+            return { texto: 'Sin valor', tipo: 'nulo', booleano: null };
+        }
+
+        if (esListaPagos(valor)) {
+            const pagos = pagosDesde(valor);
+
+            return {
+                texto: formatoMoneda(totalPagos(pagos)),
+                tipo: 'pagos',
+                booleano: null,
+                pagos,
+            };
+        }
+
+        return {
+            texto: valor.map(lineaDeElemento).join('\n'),
+            tipo: 'texto',
+            booleano: null,
+        };
+    }
+
+    if (typeof valor === 'object') {
+        const entradas = Object.entries(valor as Record<string, unknown>);
+
+        if (entradas.length === 0) {
+            return { texto: 'Sin valor', tipo: 'nulo', booleano: null };
+        }
+
+        return {
+            texto: entradas
+                .map(([clave, v]) => `${etiquetaCampo(clave)}: ${textoDeValor(clave, v)}`)
+                .join('\n'),
+            tipo: 'texto',
+            booleano: null,
+        };
+    }
+
+    return { texto: String(valor), tipo: 'texto', booleano: null };
 };
 
 export const camposDe = (datos: Record<string, unknown> | null): CampoAuditoria[] => {

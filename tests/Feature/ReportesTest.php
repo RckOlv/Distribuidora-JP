@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\TipoMovimientoCaja;
 use App\Models\Caja;
+use App\Models\CajaFisica;
 use App\Models\Categoria;
 use App\Models\Costo;
 use App\Models\Permiso;
@@ -249,8 +250,47 @@ class ReportesTest extends TestCase
         $this->actingAs($dueno)
             ->get('/reportes?fecha=2026-01-01')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('resumen.cajas.agregado.cantidad_cajas', 1)
+                ->where('resumen.cajas.agregado.cantidad_sesiones', 1)
                 ->where('resumen.cajas.agregado.efectivo_esperado', 1000));
+    }
+
+    public function test_el_agregado_cuenta_sesiones_y_no_cajas_fisicas(): void
+    {
+        $dueno = $this->crearUsuarioConRol(Rol::DUENO, [PermisosDisponibles::REPORTES_VER]);
+
+        $fisicaA = CajaFisica::factory()->create(['nombre' => 'Caja física #1']);
+        $fisicaB = CajaFisica::factory()->create(['nombre' => 'Caja física #2']);
+
+        // Física #1: sesión A (cierra) y sesión B (cierra).
+        $sesionA = app(CajaService::class)->abrir($dueno, 1000, $fisicaA);
+        app(CajaService::class)->registrarManual($sesionA, $dueno, TipoMovimientoCaja::INGRESO, 500, 'Sesión A');
+        app(CajaService::class)->cerrar($dueno, $sesionA, 1500);
+
+        $sesionB = app(CajaService::class)->abrir($dueno, 2000, $fisicaA);
+        app(CajaService::class)->registrarManual($sesionB, $dueno, TipoMovimientoCaja::INGRESO, 300, 'Sesión B');
+        app(CajaService::class)->cerrar($dueno, $sesionB, 2300);
+
+        // Física #2: sesión C (cierra) y sesión D (queda abierta).
+        $sesionC = app(CajaService::class)->abrir($dueno, 1500, $fisicaB);
+        app(CajaService::class)->registrarManual($sesionC, $dueno, TipoMovimientoCaja::INGRESO, 200, 'Sesión C');
+        app(CajaService::class)->cerrar($dueno, $sesionC, 1700);
+
+        $sesionD = app(CajaService::class)->abrir($dueno, 3000, $fisicaB);
+        app(CajaService::class)->registrarManual($sesionD, $dueno, TipoMovimientoCaja::INGRESO, 400, 'Sesión D');
+
+        // Hay 2 cajas físicas usadas (las 4 sesiones) pero 4 sesiones/aperturas.
+        // (La migración siembra además una "Caja 1" por defecto sin sesiones.)
+        $this->assertSame(2, Caja::query()->distinct()->count('caja_fisica_id'));
+        $this->assertSame(4, Caja::count());
+
+        $this->actingAs($dueno)
+            ->get('/reportes')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('resumen.cajas.agregado.cantidad_sesiones', 4)
+                ->has('resumen.cajas.cajas', 4)
+                // Suma del efectivo esperado de las 4 sesiones del período:
+                // 1500 + 2300 + 1700 + 3400 = 8900.
+                ->where('resumen.cajas.agregado.efectivo_esperado', 8900));
     }
 
     // -------------------------------------------------------- Historico / borde
@@ -266,7 +306,7 @@ class ReportesTest extends TestCase
                 ->where('resumen.ventas.total', 0)
                 ->where('resumen.ganancia.ganancia', null)
                 ->where('resumen.ganancia.margen', null)
-                ->where('resumen.cajas.agregado.cantidad_cajas', 0)
+                ->where('resumen.cajas.agregado.cantidad_sesiones', 0)
                 ->has('resumen.mas_vendidos', 0));
     }
 

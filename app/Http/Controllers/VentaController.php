@@ -9,6 +9,7 @@ use App\Http\Requests\VentasHistorialRequest;
 use App\Models\Usuario;
 use App\Models\Venta;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\Eloquent\Builder;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,7 +48,12 @@ class VentaController extends Controller
                 $query->where('ventas.usuario_id', $usuarioId);
             })
             ->when($medioPago !== '', function ($query) use ($medioPago) {
-                $query->where('ventas.medio_pago', $medioPago);
+                // El medio puede estar en pagos_venta (ventas nuevas) o, en
+                // históricos, en ventas.medio_pago.
+                $query->where(function (Builder $query) use ($medioPago) {
+                    $query->where('ventas.medio_pago', $medioPago)
+                        ->orWhereHas('pagos', fn ($query) => $query->where('medio_pago', $medioPago));
+                });
             })
             ->orderByDesc('ventas.created_at')
             ->paginate(10)
@@ -123,6 +129,9 @@ class VentaController extends Controller
                 'caja_id' => $venta->caja_id,
                 'medio_pago' => $venta->medio_pago->value,
                 'medio_pago_etiqueta' => $venta->medio_pago->etiqueta(),
+                'pagos' => $venta->pagosNormalizados(),
+                'efectivo_recibido' => $venta->efectivo_recibido === null ? null : (float) $venta->efectivo_recibido,
+                'vuelto' => $venta->vuelto === null ? null : (float) $venta->vuelto,
                 'total' => (float) $venta->total,
                 'ticket_numero' => $venta->ticket?->numero,
                 'ticket' => $venta->ticket
@@ -182,6 +191,7 @@ class VentaController extends Controller
     {
         $detalles = (array) ($contenido['detalles'] ?? []);
         $comercio = (array) ($contenido['comercio'] ?? []);
+        $pagos = $contenido['pagos'] ?? null;
 
         $alto = 20.0; // margen superior
 
@@ -209,7 +219,9 @@ class VentaController extends Controller
         if (array_key_exists('vuelto', $contenido) && ($contenido['vuelto'] ?? null) !== null) {
             $alto += 16;
         }
-        if (! empty($contenido['medio_pago'])) {
+        if (is_array($pagos) && $pagos !== []) {
+            $alto += count($pagos) * 18;
+        } elseif (! empty($contenido['medio_pago'])) {
             $alto += 20;
         }
 
@@ -239,6 +251,7 @@ class VentaController extends Controller
             'usuario' => $venta->usuario?->name,
             'medio_pago' => $venta->medio_pago->value,
             'medio_pago_etiqueta' => $venta->medio_pago->etiqueta(),
+            'pagos' => $venta->pagosNormalizados(),
             'caja_id' => $venta->caja_id,
             'total' => (float) $venta->total,
             'estado_impresion' => $impresion?->estado?->value,

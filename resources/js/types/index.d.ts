@@ -127,12 +127,19 @@ export interface OpcionMedioPago {
     etiqueta: string;
 }
 
+export interface PagoVenta {
+    medio_pago: MedioPago;
+    etiqueta: string;
+    monto: number;
+}
+
 export interface VentaPendiente {
     id: number;
     numero: string;
     fecha: string | null;
     medio_pago: MedioPago;
     medio_pago_etiqueta: string;
+    pagos: PagoVenta[];
     total: number;
     cantidad_items: number;
 }
@@ -197,6 +204,7 @@ export interface VentaHistorial {
     usuario: string | null;
     medio_pago: MedioPago;
     medio_pago_etiqueta: string;
+    pagos: PagoVenta[];
     caja_id: number | null;
     total: number;
     estado_impresion: EstadoImpresion | null;
@@ -241,6 +249,9 @@ export interface VentaDetalle {
     caja_id: number | null;
     medio_pago: MedioPago;
     medio_pago_etiqueta: string;
+    pagos: PagoVenta[];
+    efectivo_recibido: number | null;
+    vuelto: number | null;
     total: number;
     ticket_numero: string | null;
     ticket: {
@@ -266,11 +277,18 @@ export interface TicketDetalle {
     subtotal: string;
 }
 
+export interface TicketPago {
+    medio_pago: string;
+    etiqueta: string;
+    monto: string;
+}
+
 export interface TicketContenido {
     numero: string;
     fecha: string;
     usuario: string;
     medio_pago: string;
+    pagos?: TicketPago[];
     total: string;
     comercio: TicketComercio;
     detalles: TicketDetalle[];
@@ -376,13 +394,16 @@ export interface CajaReporte {
     total_ventas: number;
     cantidad_ventas: number;
     ventas_efectivo: number;
+    ventas_tarjeta: number;
+    ventas_transferencia: number;
+    otros: number;
     ingresos: number;
     egresos: number;
     efectivo_esperado: number;
 }
 
 export interface AgregadoCajas {
-    cantidad_cajas: number;
+    cantidad_sesiones: number;
     monto_inicial: number;
     total_ventas: number;
     cantidad_ventas: number;

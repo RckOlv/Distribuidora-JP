@@ -52,8 +52,42 @@ class Venta extends Model
         return $this->hasMany(DetalleVenta::class);
     }
 
+    public function pagos(): HasMany
+    {
+        return $this->hasMany(PagoVenta::class);
+    }
+
     public function ticket(): HasOne
     {
         return $this->hasOne(Ticket::class);
+    }
+
+    /**
+     * Desglose de pagos como arreglo normalizado. Las ventas históricas
+     * (anteriores a la tabla pagos_venta) no tienen filas y caen al medio
+     * original con el total como monto.
+     */
+    public function pagosNormalizados(): array
+    {
+        $pagos = $this->pagos()
+            ->orderBy('id')
+            ->get()
+            ->map(fn (PagoVenta $pago): array => [
+                'medio_pago' => $pago->medio_pago->value,
+                'etiqueta' => $pago->medio_pago->etiqueta(),
+                'monto' => $pago->monto,
+            ])
+            ->values()
+            ->all();
+
+        if ($pagos !== []) {
+            return $pagos;
+        }
+
+        return [[
+            'medio_pago' => $this->medio_pago->value,
+            'etiqueta' => $this->medio_pago->etiqueta(),
+            'monto' => $this->total,
+        ]];
     }
 }

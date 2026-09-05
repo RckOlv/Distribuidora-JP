@@ -97,10 +97,38 @@ class AuditoriaController extends Controller
                 'entidad_tipo' => $registro->entidad_tipo,
                 'entidad_id' => $registro->entidad_id,
                 'descripcion' => $registro->descripcion,
-                'datos_anteriores' => $registro->datos_anteriores,
-                'datos_nuevos' => $registro->datos_nuevos,
+                'datos_anteriores' => $this->conNombresDeUsuarios($registro->datos_anteriores),
+                'datos_nuevos' => $this->conNombresDeUsuarios($registro->datos_nuevos),
             ],
         ]);
+    }
+
+    /**
+     * Resuelve la clave 'usuario_id' de los datos a auditoría como el nombre
+     * del usuario. Solo altera la respuesta; no modifica el registro.
+     *
+     * @param  array<string, mixed>|null  $datos
+     * @return array<string, mixed>|null
+     */
+    private function conNombresDeUsuarios(?array $datos): ?array
+    {
+        if ($datos === null || ! array_key_exists('usuario_id', $datos)) {
+            return $datos;
+        }
+
+        $usuarioId = $datos['usuario_id'];
+
+        if ($usuarioId === null || $usuarioId === '') {
+            return $datos;
+        }
+
+        $nombre = Usuario::query()->find($usuarioId)?->name;
+
+        if ($nombre !== null) {
+            $datos['usuario_id'] = $nombre;
+        }
+
+        return $datos;
     }
 
     /**

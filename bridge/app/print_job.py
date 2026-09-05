@@ -34,6 +34,12 @@ class TicketSnapshot:
     def medio_pago(self) -> str:
         return str(self.contenido.get("medio_pago", ""))
 
+    def pagos(self) -> list[dict[str, Any]]:
+        pagos = self.contenido.get("pagos")
+        if isinstance(pagos, list):
+            return [pago for pago in pagos if isinstance(pago, dict)]
+        return []
+
     def total(self) -> Any:
         return self.contenido.get("total", 0)
 
@@ -98,7 +104,15 @@ def generar_ticket(snapshot: TicketSnapshot, es_reimpresion: bool = False) -> by
     # ticket / fecha
     esc.fila_alineada("TICKET N°", snapshot.numero())
     esc.fila_alineada("Fecha", snapshot.fecha())
-    esc.fila_alineada("Pago", snapshot.medio_pago())
+    pagos = snapshot.pagos()
+    if pagos:
+        etiquetas = [
+            str(pago.get("etiqueta") or pago.get("medio_pago") or "")
+            for pago in pagos
+        ]
+        esc.fila_alineada("Pago", " + ".join(etiquetas))
+    else:
+        esc.fila_alineada("Pago", snapshot.medio_pago())
     esc.separador()
 
     # detalles de productos (columnas alineadas)
@@ -132,6 +146,20 @@ def generar_ticket(snapshot: TicketSnapshot, es_reimpresion: bool = False) -> by
 
     # total
     esc.fila_alineada("TOTAL", formatear_moneda(snapshot.total()))
+
+    # desglose por medio (solo ventas con pagos_venta mixtos o desglosados)
+    pagos = snapshot.pagos()
+    if pagos and len(pagos) > 1:
+        for pago in pagos:
+            etiqueta = str(pago.get("etiqueta") or pago.get("medio_pago") or "")
+            try:
+                monto = formatear_moneda(pago.get("monto", 0))
+            except (TypeError, ValueError):
+                raise ErrorPermanente(
+                    f"Snapshot inválido: 'pagos' monto no interpretable "
+                    f"({pago.get('monto')!r})."
+                ) from None
+            esc.fila_alineada(f"  {etiqueta}", monto)
 
     # efectivo: monto recibido y vuelto (solo en ventas en efectivo)
     recibido = snapshot.efectivo_recibido()

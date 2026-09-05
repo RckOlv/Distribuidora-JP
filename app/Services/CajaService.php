@@ -276,11 +276,19 @@ class CajaService
 
             if ($mov->tipo === TipoMovimientoCaja::VENTA) {
                 $totalVentas += $monto;
-                $medio = $mov->venta?->medio_pago?->value ?? 'VENTA';
+
+                // Desde la tabla pagos_venta hay un movimiento por medio; en
+                // registros anteriores el medio cae a la venta asociada.
+                $medio = $mov->medio_pago?->value
+                    ?? $mov->venta?->medio_pago?->value
+                    ?? 'VENTA';
 
                 $porMedio[$medio] = ($porMedio[$medio] ?? 0.0) + $monto;
 
-                if ($mov->venta?->medio_pago === MedioPago::EFECTIVO) {
+                $esEfectivo = $mov->medio_pago === MedioPago::EFECTIVO
+                    || ($mov->medio_pago === null && $mov->venta?->medio_pago === MedioPago::EFECTIVO);
+
+                if ($esEfectivo) {
                     $efectivoVentas += $monto;
                 }
             } elseif ($mov->tipo === TipoMovimientoCaja::INGRESO) {
@@ -330,7 +338,7 @@ class CajaService
             'cerrada_en' => $caja->cerrada_en?->toIso8601String(),
             'monto_inicial' => $montoInicial,
             'total_ventas' => round($totalVentas, 2),
-            'cantidad_ventas' => $movimientos->where('tipo', TipoMovimientoCaja::VENTA)->count(),
+            'cantidad_ventas' => $movimientos->where('tipo', TipoMovimientoCaja::VENTA)->unique('venta_id')->count(),
             'ventas_efectivo' => round($porMedio[MedioPago::EFECTIVO->value] ?? 0, 2),
             'ventas_transferencia' => round($porMedio[MedioPago::TRANSFERENCIA->value] ?? 0, 2),
             'ventas_tarjeta' => round($porMedio[MedioPago::TARJETA->value] ?? 0, 2),

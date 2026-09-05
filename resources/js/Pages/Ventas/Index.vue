@@ -246,7 +246,22 @@ const fecha = (iso: string | null) => {
                                     {{ venta.usuario ?? '—' }}
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                    {{ venta.medio_pago_etiqueta }}
+                                    <div
+                                        v-if="venta.pagos.length > 1"
+                                        class="flex flex-wrap gap-1"
+                                    >
+                                        <span
+                                            v-for="pago in venta.pagos"
+                                            :key="pago.medio_pago"
+                                            class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
+                                        >
+                                            {{ pago.etiqueta }} ·
+                                            {{ formatoMoneda(pago.monto) }}
+                                        </span>
+                                    </div>
+                                    <span v-else>
+                                        {{ venta.medio_pago_etiqueta }}
+                                    </span>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                                     {{ venta.caja_id ? '#' + venta.caja_id : '—' }}

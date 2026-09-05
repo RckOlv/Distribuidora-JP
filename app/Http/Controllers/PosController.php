@@ -92,12 +92,23 @@ class PosController extends Controller
 
         $efectivoRecibido = $datos['efectivo_recibido'] ?? null;
 
-        $venta = $ventas->registrar(
-            $request->user(),
-            $datos['medio_pago'],
-            $datos['items'],
-            $efectivoRecibido !== null ? (float) $efectivoRecibido : null,
-        );
+        $pagos = $datos['pagos'] ?? null;
+
+        if ($pagos !== null) {
+            $venta = $ventas->registrarConPagos(
+                $request->user(),
+                $pagos,
+                $datos['items'],
+                $efectivoRecibido !== null ? (float) $efectivoRecibido : null,
+            );
+        } else {
+            $venta = $ventas->registrar(
+                $request->user(),
+                $datos['medio_pago'],
+                $datos['items'],
+                $efectivoRecibido !== null ? (float) $efectivoRecibido : null,
+            );
+        }
 
         return $this->respuestaVenta($venta);
     }
@@ -107,17 +118,33 @@ class PosController extends Controller
      *
      * No contabiliza la venta como definitiva: solo persiste la venta y sus
      * detalles. Hasta confirmar el pago no hay movimiento de caja, ticket,
-     * impresión ni auditoría.
+     * impresión ni auditoría. Exige al menos un pago por transferencia o
+     * tarjeta (una venta totalmente pagada en el momento no debe quedar
+     * pendiente).
      */
     public function pendiente(Request $request, VentaService $ventas): RedirectResponse
     {
         $datos = $this->validarItems($request, ['TRANSFERENCIA', 'TARJETA']);
 
-        $venta = $ventas->registrarPendiente(
-            $request->user(),
-            $datos['medio_pago'],
-            $datos['items'],
-        );
+        $pagos = $datos['pagos'] ?? null;
+
+        if ($pagos !== null) {
+            $this->exigirPagoElectronico($pagos);
+
+            $venta = $ventas->registrarPendienteConPagos(
+                $request->user(),
+                $pagos,
+                $datos['items'],
+                isset($datos['efectivo_recibido']) ? (float) $datos['efectivo_recibido'] : null,
+            );
+        } else {
+            // Flujo legado: medio único ya restringido a transferencia/tarjeta.
+            $venta = $ventas->registrarPendiente(
+                $request->user(),
+                $datos['medio_pago'],
+                $datos['items'],
+            );
+        }
 
         return redirect()->route('pos.index')
             ->with('success', 'Venta registrada como pendiente de pago.'
@@ -164,24 +191,68 @@ class PosController extends Controller
     }
 
     /**
-     * Valida los items de un pedido del POS.
+     * Valida los items de un pedido del POS. Acepta `pagos.*` (desglose por
+     * medio) o el legacy `medio_pago` único. Si se envía `pagos` no se exige
+     * `medio_pago`.
      *
      * @param  list<string>  $mediosPermitidos
-     * @return array{medio_pago: string, items: array<int, array{producto_id: int, cantidad: mixed}>}
+     * @return array{medio_pago?: string, pagos?: array<int, array{medio_pago: string, monto: float}>, items: array<int, array{producto_id: int, cantidad: mixed}>}
      */
     private function validarItems(Request $request, array $mediosPermitidos = []): array
     {
         $reglaMedio = empty($mediosPermitidos)
-            ? ['required', Rule::enum(MedioPago::class)]
-            : ['required', Rule::in($mediosPermitidos)];
+            ? ['sometimes', 'required_without:pagos', Rule::enum(MedioPago::class)]
+            : ['sometimes', 'required_without:pagos', Rule::in($mediosPermitidos)];
 
         return $request->validate([
             'medio_pago' => $reglaMedio,
+            'pagos' => ['sometimes', 'array', 'min:1'],
+            'pagos.*.medio_pago' => ['required', Rule::enum(MedioPago::class)],
+            // decimal(12,2): más de 0, hasta 2 decimales y dentro del rango.
+            'pagos.*.monto' => [
+                'required',
+                'numeric',
+                'decimal:0,2',
+                'min:0.01',
+                'max:9999999999.99',
+            ],
             'items' => ['required', 'array', 'min:1'],
             'items.*.producto_id' => ['required', 'integer', 'exists:productos,id'],
             'items.*.cantidad' => ['required', 'numeric', 'min:0.01'],
-            'efectivo_recibido' => ['nullable', 'numeric', 'min:0'],
+            'efectivo_recibido' => [
+                'nullable',
+                'numeric',
+                'decimal:0,2',
+                'min:0.01',
+                'max:9999999999.99',
+            ],
         ]);
+    }
+
+    /**
+     * Exige al menos un pago por transferencia o tarjeta en ventas pendientes
+     * con desglose de pagos (una venta totalmente abonada no queda pendiente).
+     *
+     * @param  array<int, array{medio_pago: string, monto: float}>  $pagos
+     *
+     * @throws ValidationException
+     */
+    private function exigirPagoElectronico(array $pagos): void
+    {
+        $tieneElectronico = count(array_filter(
+            $pagos,
+            fn (array $pago): bool => in_array(
+                $pago['medio_pago'] ?? null,
+                [MedioPago::TRANSFERENCIA->value, MedioPago::TARJETA->value],
+                true,
+            ),
+        )) > 0;
+
+        if (! $tieneElectronico) {
+            throw ValidationException::withMessages([
+                'pagos' => 'Una venta pendiente debe incluir al menos un pago por transferencia o tarjeta.',
+            ]);
+        }
     }
 
     /**
@@ -195,6 +266,7 @@ class PosController extends Controller
             'fecha' => $venta->created_at?->toIso8601String(),
             'medio_pago' => $venta->medio_pago->value,
             'medio_pago_etiqueta' => $venta->medio_pago->etiqueta(),
+            'pagos' => $venta->pagosNormalizados(),
             'total' => (float) $venta->total,
             'cantidad_items' => $venta->detalles->count(),
         ];

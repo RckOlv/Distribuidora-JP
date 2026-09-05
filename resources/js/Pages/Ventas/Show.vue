@@ -4,7 +4,7 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import { formatoMoneda } from '@/helpers/formato';
 import { notificarError } from '@/helpers/notificaciones';
 import { Head, Link } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type {
     DetalleVentaHistorial,
     TrabajoImpresionDetalle,
@@ -16,6 +16,12 @@ const props = defineProps<{
     detalles: DetalleVentaHistorial[];
     trabajos: TrabajoImpresionDetalle[];
 }>();
+
+const muestraPago = computed(
+    () =>
+        props.venta.medio_pago === 'EFECTIVO' &&
+        (props.venta.efectivo_recibido !== null || props.venta.vuelto !== null),
+);
 
 const descargandoPdf = ref(false);
 
@@ -163,7 +169,11 @@ const descargarPdf = async () => {
                                 Medio de pago
                             </dt>
                             <dd class="mt-1 text-sm text-gray-900">
-                                {{ venta.medio_pago_etiqueta }}
+                                {{
+                                    venta.pagos.length > 1
+                                        ? 'Múltiples medios de pago'
+                                        : venta.medio_pago_etiqueta
+                                }}
                             </dd>
                         </div>
                         <div>
@@ -192,6 +202,56 @@ const descargarPdf = async () => {
                             </dd>
                         </div>
                     </dl>
+
+                    <div class="border-t border-gray-200 px-6 py-5">
+                        <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500">
+                            Pagos
+                        </h3>
+                        <dl class="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <div v-for="pago in venta.pagos" :key="pago.medio_pago">
+                                <dt class="text-xs uppercase tracking-wider text-gray-500">
+                                    {{ pago.etiqueta }}
+                                </dt>
+                                <dd class="mt-1 text-sm font-medium text-gray-900">
+                                    {{ formatoMoneda(pago.monto) }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs uppercase tracking-wider text-gray-500">
+                                    Total pagado
+                                </dt>
+                                <dd class="mt-1 text-lg font-bold text-gray-900">
+                                    {{ formatoMoneda(venta.total) }}
+                                </dd>
+                            </div>
+                        </dl>
+
+                        <dl
+                            v-if="muestraPago"
+                            class="mt-4 grid gap-x-6 gap-y-4 border-t border-gray-100 pt-4 sm:grid-cols-2"
+                        >
+                            <div>
+                                <dt class="text-xs uppercase tracking-wider text-gray-500">
+                                    Efectivo recibido
+                                </dt>
+                                <dd class="mt-1 text-sm font-medium text-gray-900">
+                                    {{
+                                        formatoMoneda(
+                                            venta.efectivo_recibido,
+                                        )
+                                    }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs uppercase tracking-wider text-gray-500">
+                                    Vuelto
+                                </dt>
+                                <dd class="mt-1 text-sm font-medium text-gray-900">
+                                    {{ formatoMoneda(venta.vuelto) }}
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
                 </div>
 
                 <div

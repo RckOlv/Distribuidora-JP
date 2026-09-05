@@ -258,6 +258,7 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Banana Ecuatoriana',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
+                'costo' => 1500,
             ])
             ->assertRedirect(route('productos.index'));
 
@@ -369,6 +370,7 @@ class CatalogoTest extends TestCase
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
                 'monto' => 2000,
+                'costo' => 1500,
             ])
             ->assertRedirect(route('productos.index'));
 
@@ -411,6 +413,7 @@ class CatalogoTest extends TestCase
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'KILOGRAMO',
                 'monto' => 1800,
+                'costo' => 1500,
             ])
             ->assertRedirect(route('productos.index'));
 
@@ -500,6 +503,23 @@ class CatalogoTest extends TestCase
         $this->assertSame(0, Producto::count(), 'Producto no debe crearse con costo inválido.');
         $this->assertSame(0, Precio::count(), 'No debe quedar precio parcial.');
         $this->assertSame(0, Costo::count(), 'No debe quedar costo parcial.');
+    }
+
+    public function test_editar_un_producto_sin_costo_es_rechazado(): void
+    {
+        $categoria = Categoria::create(['nombre' => 'Frutas']);
+        $producto = $this->crearProducto($categoria, 'Manzana', 'UNIDAD');
+        $dueno = $this->crearUsuarioConRol(Rol::DUENO, []);
+
+        $this->actingAs($dueno)
+            ->put('/productos/'.$producto->id, [
+                'nombre' => 'Manzana Roja',
+                'categoria_id' => $categoria->id,
+                'unidad_medida' => 'UNIDAD',
+                'codigo' => '7790000501',
+                'monto' => 2200,
+            ])
+            ->assertSessionHasErrors('costo');
     }
 
     public function test_producto_con_costo_se_crea_con_costo_vigente(): void
@@ -611,6 +631,7 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Bolsa Sopa',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'BOLSA',
+                'costo' => 2500,
                 'imagen' => $this->imagenFake('bolsa2.png'),
             ])
             ->assertRedirect(route('productos.index'));
@@ -638,6 +659,7 @@ class CatalogoTest extends TestCase
                 'nombre' => 'Bolsa Sopa',
                 'categoria_id' => $categoria->id,
                 'unidad_medida' => 'BOLSA',
+                'costo' => 2500,
                 'quitar_imagen' => '1',
             ])
             ->assertRedirect(route('productos.index'));
